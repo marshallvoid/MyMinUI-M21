@@ -2431,18 +2431,17 @@ static int getBoxartPath(Entry* entry, char* out) {
 	char rom_name[256];
 	getParentFolderName(entry->path, emu_name);
 	getDisplayNameParens(entry->path, rom_name);
-	if (entry->type==ENTRY_ROM) {
+
+  if (entry->type==ENTRY_ROM) {
 		sprintf(out, ROMS_PATH "/%s/Imgs/%s.png", emu_name, rom_name);
 		if (exists(out)) return 1;
 	}
+	else if (entry->type==ENTRY_PAK) {
+		sprintf(out, "%s/Imgs/%s.png", entry->path, entry->name);
+		if (exists(out)) return 1;
+	}
 	else if (entry->type==ENTRY_DIR) {
-		// NEW: Collections subfolder (direct child of COLLECTIONS_PATH only)
-		if (prefixMatch(COLLECTIONS_PATH "/", entry->path)
-			&& !strchr(entry->path + strlen(COLLECTIONS_PATH) + 1, '/')) {
-			sprintf(out, COLLECTIONS_PATH "/Imgs/%s.png", entry->name);
-			if (exists(out)) return 1;
-		}
-		char m3u_path[512];
+    char m3u_path[512];
 		sprintf(m3u_path, "%s/%s.m3u", entry->path, rom_name);
 		if (exists(m3u_path)) { // collated/multi-disc folder behaves like a rom
 			sprintf(out, ROMS_PATH "/%s/Imgs/%s.png", emu_name, rom_name);
@@ -2453,16 +2452,15 @@ static int getBoxartPath(Entry* entry, char* out) {
 			if (exists(out)) return 1;
 		}
 	}
-	else if (entry->type==ENTRY_PAK) {
-		sprintf(out, "%s/Imgs/%s.png", entry->path, entry->name);
-		if (exists(out)) return 1;
-	}
-	// generic fallbacks (covers faux directories and subfolders)
+
+  // generic fallbacks (covers faux directories and subfolders)
 	sprintf(out, "%s/Imgs/%s.png", entry->path, entry->name);
 	if (exists(out)) return 1;
-	sprintf(out, SDCARD_PATH "/Imgs/%s.png", entry->name);
+
+   sprintf(out, SDCARD_PATH "/Imgs/%s.png", entry->name);
 	if (exists(out)) return 1;
-	// NEW: system-wide default boxart fallback
+
+   // NEW: system-wide default boxart fallback
 	sprintf(out, SDCARD_PATH "/Imgs/default.png");
 	if (exists(out)) return 1;
 	out[0] = '\0';
