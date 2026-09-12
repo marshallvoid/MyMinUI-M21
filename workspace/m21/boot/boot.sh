@@ -6,7 +6,7 @@ MOUNTEDTMP=$( mount | grep "rootfs.ext2" )
 if [ "${MOUNTEDTMP}" = "" ]; then
 #    echo "NOT YET MOUNTED" >> /mnt/SDCARD/log.txt
     MOUNTED=0
-else 
+else
 #    echo "ALREADY MOUNTED" >> /mnt/SDCARD/log.txt
     MOUNTED=1
 fi
@@ -50,7 +50,7 @@ if [ -f ${SDCARD_PATH}/My${FWNAME}-*-${PLATFORM}.zip ]; then
 	rm -rf $NEWFILE
 	sync
 #	echo "Finita fase 1" >> $SDCARD_PATH/log.txt
-	
+
 fi
 
 
@@ -128,6 +128,27 @@ if [ -f ${ROOTFS_MOUNTPOINT}/bin/busybox ]; then
 	if [ "$0" = "/mnt/SDCARD/tomato" ]; then
 		echo 1 > /mnt/SDCARD/m21/thisism22
 	fi
+	# LED sysfs dump for debugging (M22 PRO)
+	#{
+	#	echo "date: $(date)"
+	#	echo "--- ls -l /sys/class/leds:"
+	#	ls -l /sys/class/leds/
+	#	for d in /sys/class/leds/*; do
+	#		echo "== $d =="
+	#		for f in trigger max_brightness brightness device/modalias device/name uevent; do
+	#			if [ -e "$d/$f" ]; then
+	#				echo "--- $f:"
+	#				cat "$d/$f" 2>&1
+	#				echo
+	#			fi
+	#		done
+	#	done
+	#} > /mnt/SDCARD/led-dump-boot.txt 2>&1
+	#sync
+    # restore saved LED mode (off|gradient) before entering MinUI
+    if [ -f "${SYSTEM_PATH}/${PLATFORM}/bin/led.sh" ]; then
+    	sh "${SYSTEM_PATH}/${PLATFORM}/bin/led.sh" apply >/dev/null 2>&1 &
+    fi
     chroot $ROOTFS_MOUNTPOINT ${SYSTEM_PATH}/${PLATFORM}/paks/MinUI.pak/launch.sh #&> $SDCARD_PATH/chroot.txt
     sync
 fi

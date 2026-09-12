@@ -21,7 +21,7 @@ mkdir -p "$LOGS_PATH"
 mkdir -p "$SHARED_USERDATA_PATH/.minui"
 
 #check if newdtb is loaded
-TMPSTR=$(cat /sys/class/disp/disp/attr/sys | grep fps:38) 
+TMPSTR=$(cat /sys/class/disp/disp/attr/sys | grep fps:38)
 if [ "${TMPSTR}NULL" = "NULL" ]; then
 	export NEWDTB=1
 fi
@@ -35,6 +35,29 @@ source "$SYSTEM_PATH/custombuttonmapping.env"
 
 #######################################
 
+# LED sysfs dump for debugging (M22 PRO)
+#{
+#	echo "date: $(date)"
+#	echo "--- ls -l /sys/class/leds:"
+#	ls -l /sys/class/leds/
+#	for d in /sys/class/leds/*; do
+#		echo "== $d =="
+#		for f in trigger max_brightness brightness device/modalias device/name uevent; do
+#			if [ -e "$d/$f" ]; then
+#				echo "--- $f:"
+#				cat "$d/$f" 2>&1
+#				echo
+#			fi
+#		done
+#	done
+#} > "$SDCARD_PATH/led-dump-minui.txt" 2>&1
+#sync
+
+# restore saved LED mode (off|gradient), persists across reboots
+if [ -f "$SYSTEM_PATH/bin/led.sh" ]; then
+	sh "$SYSTEM_PATH/bin/led.sh" apply >/dev/null 2>&1 &
+fi
+
 
 #Available frequency
 #480000
@@ -43,7 +66,7 @@ source "$SYSTEM_PATH/custombuttonmapping.env"
 #1008000
 #1104000
 #1200000
-	
+
 export CPU_SPEED_MENU=912000
 export CPU_SPEED_POWERSAVE=912000
 export CPU_SPEED_GAME=1008000
@@ -87,10 +110,10 @@ touch "$EXEC_PATH" && sync
 while [ -f "$EXEC_PATH" ]; do
 	echo $CPU_SPEED_GAME > "${GOVERNOR_CPUSPEED_PATH}"
 	minui.elf > $LOGS_PATH/minui.txt 2>&1
-	
+
 	echo `date +'%F %T'` > "$DATETIME_PATH"
 	sync
-	
+
 	if [ -f $NEXT_PATH ]; then
 		CMD=`cat $NEXT_PATH`
 		eval $CMD
@@ -104,11 +127,13 @@ while [ -f "$EXEC_PATH" ]; do
 	if [ -f "/tmp/poweroff" ]; then
 		rm -f "/tmp/poweroff"
 		killall keymon.elf
+		# cut the LEDs too (daemon would keep them lit until hard power cut)
+		if [ -f "$SYSTEM_PATH/bin/led.sh" ]; then
+			sh "$SYSTEM_PATH/bin/led.sh" off-now >/dev/null 2>&1
+		fi
 		shutdown
-		# TODO: figure out how to control led?
 		while :; do
 			sleep 5
 		done
 	fi
 done
-
