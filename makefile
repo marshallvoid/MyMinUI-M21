@@ -25,11 +25,11 @@ RELEASE_NAME=$(RELEASE_BASE)-$(RELEASE_DOT)
 export MAKEFLAGS=--no-print-directory
 
 all: setup $(PLATFORMS) done
-	
+
 shell:
 	make -f makefile.toolchain PLATFORM=$(PLATFORM)
 
-name: 
+name:
 	echo $(RELEASE_NAME)
 
 build:
@@ -39,7 +39,7 @@ build:
 
 system:
 	make -f ./workspace/$(PLATFORM)/platform/makefile.copy PLATFORM=$(PLATFORM)
-	
+
 	# populate system
 	cp ./workspace/$(PLATFORM)/keymon/keymon.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/$(PLATFORM)/libmsettings/libmsettings.so ./build/SYSTEM/$(PLATFORM)/lib
@@ -58,15 +58,16 @@ cores:
 #	mv ./build/SYSTEM/$(PLATFORM)/cores/bmp2png ./build/SYSTEM/$(PLATFORM)/bin/bmp2png.elf
 
 common: build system cores
-	
+
 clean:
 	rm -rf ./build
+	rm -rf ./releases
 
 setup:
 	# ----------------------------------------------------
 	# make sure we're running in an input device
-	tty -s 
-	
+	tty -s
+
 	# ready fresh build
 	rm -rf ./build
 	mkdir -p ./releases
@@ -85,17 +86,17 @@ setup:
 #	cp -R ./skeleton/EXTRAS/Saves ./build/EXTRAS/Saves
 	cp -R ./skeleton/EXTRAS/Emus/$(PLATFORM) ./build/EXTRAS/Emus/$(PLATFORM)
 	cp -R ./skeleton/EXTRAS/Tools/$(PLATFORM) ./build/EXTRAS/Tools/$(PLATFORM)
-	
+
 	# remove authoring detritus
 	cd ./build && find . -type f -name '.keep' -delete
 	cd ./build && find . -type f -name '*.meta' -delete
 	echo $(BUILD_HASH) > ./workspace/hash.txt
-	
+
 	# copy readmes to workspace so we can use Linux fmt instead of host's
 	mkdir -p ./workspace/readmes
 	cp ./skeleton/BASE/README.txt ./workspace/readmes/BASE-in.txt
 #	cp ./skeleton/EXTRAS/README.txt ./workspace/readmes/EXTRAS-in.txt
-	
+
 done:
 	command -v say >/dev/null 2>&1 && say "done" || echo "done"
 
@@ -114,28 +115,28 @@ specialpackage: tidy
 
 # ----------------------------------------------------
 	# zip up build
-		
+
 	# move formatted readmes from workspace to build
 	cp ./workspace/readmes/BASE-out.txt ./build/BASE/README.txt
 	# cp ./workspace/readmes/EXTRAS-out.txt ./build/EXTRAS/README_EXTRAS.txt
 	rm -rf ./workspace/readmes
-	
+
 	cd ./build/SYSTEM && echo "$(RELEASE_NAME)\n$(BUILD_HASH)" > version.txt
 	./commits.sh > ./build/SYSTEM/commits.txt
 	cd ./build && find . -type f -name '.DS_Store' -delete
-	
+
 	mv ./build/SYSTEM ./build/PAYLOAD/.system
 	cp -R ./build/BOOT/.tmp_update ./build/PAYLOAD/
 	cd ./build/PAYLOAD && zip -r ../BASE/trimui.zip .tmp_update
-	
+
 	cd ./build/PAYLOAD && zip -r MinUI.zip .system .tmp_update
 	mv ./build/PAYLOAD/MinUI.zip ./build/BASE
-	
+
 	# TODO: can I just add everything in BASE to zip?
 #	cd ./build/BASE && zip -r ../../releases/$(RELEASE_NAME)-base.zip Bios Roms Saves miyoo miyoo354 trimui rg35xx rg35xxplus gkdpixel em_ui.sh MinUI.zip README.txt
 #	cd ./build/EXTRAS && zip -r ../../releases/$(RELEASE_NAME)-extras.zip Bios Emus Roms Saves Tools README.txt
-	
-	
+
+
 	rm -fr ./build/FULL
 	mkdir ./build/FULL
 	cp -fR ./build/BASE/* ./build/FULL/
@@ -146,16 +147,16 @@ specialpackage: tidy
 	rm -rf ./build/BOOT
 	rm -rf ./releases/$(RELEASE_NAME)-$(PLATFORM).zip
 	cd ./build/FULL && zip -r ../../releases/$(RELEASE_NAME)-$(PLATFORM).zip Bios Emus Roms Cheats Saves Tools miyoo miyoo354 miyoo285 trimui rg35xxplus r36s m21 gkdpixel em_ui.sh MinUI.zip README.txt
-	
-	
+
+
 	echo "$(RELEASE_NAME)" > ./build/latest.txt
-	
+
 
 
 tidy:
 	# ----------------------------------------------------
 	# remove systems we're not ready to support yet
-	
+
 	# TODO: tmp, figure out a cleaner way to do this
 	rm -rf ./build/SYSTEM/trimui
 	rm -rf ./build/EXTRAS/Tools/trimui
@@ -163,27 +164,27 @@ tidy:
 package: tidy
 	# ----------------------------------------------------
 	# zip up build
-		
+
 	# move formatted readmes from workspace to build
 	cp ./workspace/readmes/BASE-out.txt ./build/BASE/README.txt
 	# cp ./workspace/readmes/EXTRAS-out.txt ./build/EXTRAS/README_EXTRAS.txt
 	rm -rf ./workspace/readmes
-	
+
 	cd ./build/SYSTEM && echo "$(RELEASE_NAME)\n$(BUILD_HASH)" > version.txt
 	./commits.sh > ./build/SYSTEM/commits.txt
 	cd ./build && find . -type f -name '.DS_Store' -delete
-	
+
 	mv ./build/SYSTEM ./build/PAYLOAD/.system
 
-	
-	cd ./build/PAYLOAD && zip -r MinUI.zip .system 
+
+	cd ./build/PAYLOAD && zip -r MinUI.zip .system
 	mv ./build/PAYLOAD/MinUI.zip ./build/BASE
-	
+
 	# TODO: can I just add everything in BASE to zip?
 #	cd ./build/BASE && zip -r ../../releases/$(RELEASE_NAME)-base.zip Bios Roms Saves miyoo miyoo354 trimui rg35xx rg35xxplus gkdpixel em_ui.sh MinUI.zip README.txt
 #	cd ./build/EXTRAS && zip -r ../../releases/$(RELEASE_NAME)-extras.zip Bios Emus Roms Saves Tools README.txt
-	
-	
+
+
 	rm -fr ./build/FULL
 	mkdir ./build/FULL
 	cp -fR ./build/BASE/* ./build/FULL/
@@ -194,10 +195,10 @@ package: tidy
 	rm -rf ./build/BOOT
 	rm -rf ./releases/$(RELEASE_NAME)-$(PLATFORM).zip
 	cd ./build/FULL && zip -r ../../releases/$(RELEASE_NAME)-$(PLATFORM).zip Bios Emus Roms Saves Cheats Tools miyoo miyoo354 m21 r36s rg35xx MinUI.zip README.txt
-	
-	
+
+
 	echo "$(RELEASE_NAME)" > ./build/latest.txt
-	
+
 
 ###########################################################
 
@@ -265,4 +266,3 @@ gkdpixel:
 	# ----------------------------------------------------
 	make clean setup common special package PLATFORM=$@
 	# ----------------------------------------------------
-

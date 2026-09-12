@@ -54,3 +54,5 @@ toolchains/miyoomini-toolchain/.build
 toolchains/rg35xx-toolchain/.build
 toolchains/my282-toolchain/.build
 
+*.bak
+storage/
