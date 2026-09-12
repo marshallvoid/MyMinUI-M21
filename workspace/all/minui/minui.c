@@ -402,16 +402,48 @@ static int getBoxartPath(Entry* entry, char* out);
 static SDL_Surface* BoxartCache_get(char* path);
 static SDL_Surface* loadBoxart(const char* path);
 static void BoxartCache_put(char* path, SDL_Surface* surface);
+static void MenuOpt_boxartPath(int i, char* out);
+static void MenuOpt_preloadAt(int i);
 
 static void SearchResults_clear(void) {
 	if (search_results) SearchResultArray_free(search_results);
 	search_results = NULL;
 }
 
-// ---- Tools entries inside the Y/Options menu ----
-// Search is always item 0, followed by *.pak folders from Tools/PLATFORM
-// sorted A-Z. No Back item (B already goes back).
+// ---- Y/Options menu model ----
+// Layout: Search first, then *.pak folders from Tools/PLATFORM sorted A-Z,
+// then Shutdown always last. No Back item (B already goes back).
+// All menu-0 code goes through MenuOpt_at() so adding a new virtual option
+// only touches one place instead of scattered i==0 / i==topts-1 checks.
+typedef enum { OPT_SEARCH, OPT_PAK, OPT_SHUTDOWN } OptKind;
 static Array* tools_entries = NULL;
+static int MenuOpt_count(void) {
+	return 2 + (tools_entries ? tools_entries->count : 0);
+}
+// Resolve item i -> kind + display name (+ pak entry for OPT_PAK).
+// Returns 1 on success, 0 if i is out of range.
+static int MenuOpt_at(int i, OptKind* kind, char* name, Entry** pak) {
+	int t = tools_entries ? tools_entries->count : 0;
+	if (i<0 || i>=t+2) return 0;
+	if (i==0) {
+		if (kind) *kind = OPT_SEARCH;
+		if (name) strcpy(name, "Search");
+		if (pak) *pak = NULL;
+		return 1;
+	}
+	if (i==t+1) {
+		if (kind) *kind = OPT_SHUTDOWN;
+		if (name) strcpy(name, "Shutdown");
+		if (pak) *pak = NULL;
+		return 1;
+	}
+	Entry* tool = (tools_entries && i-1>=0 && i-1<t) ? tools_entries->items[i-1] : NULL;
+	if (!tool) return 0;
+	if (kind) *kind = OPT_PAK;
+	if (name) strcpy(name, tool->name);
+	if (pak) *pak = tool;
+	return 1;
+}
 static void Tools_clear(void) {
 	if (tools_entries) EntryArray_free(tools_entries);
 	tools_entries = NULL;
@@ -441,9 +473,32 @@ static void Tools_refresh(void) {
 	closedir(dh);
 	EntryArray_sort(tools_entries);
 }
-static Entry* Tools_get(int index) {
-	if (!tools_entries || index<0 || index>=tools_entries->count) return NULL;
-	return tools_entries->items[index];
+// Resolve the display boxart for Y/Options item i into out (empty if none).
+// Virtual items (Search/Shutdown/...): /Imgs/<name>.png, then default.png.
+// Pak items: via getBoxartPath().
+static void MenuOpt_boxartPath(int i, char* out) {
+	out[0] = '\0';
+	OptKind kind;
+	char name[256];
+	Entry* tool = NULL;
+	if (!MenuOpt_at(i, &kind, name, &tool)) return;
+	if (kind==OPT_PAK && tool) {
+		getBoxartPath(tool, out);
+		return;
+	}
+	sprintf(out, SDCARD_PATH "/Imgs/%s.png", name);
+	if (!exists(out)) {
+		sprintf(out, SDCARD_PATH "/Imgs/default.png");
+		if (!exists(out)) out[0] = '\0';
+	}
+}
+static void MenuOpt_preloadAt(int i) { // decode + cache one Y/Options art if needed
+	char path[512];
+	MenuOpt_boxartPath(i, path);
+	if (!path[0]) return;
+	if (BoxartCache_get(path)) return;
+	SDL_Surface* surface = loadBoxart(path);
+	if (surface) BoxartCache_put(path, surface);
 }
 
 static void SearchResults_build(char* query) {
@@ -573,7 +628,7 @@ static void Search_draw(SDL_Surface* screen, int show_setting, int fancy) {
 	int sw = screen->w - SCALE1(PADDING*2);
 	int sx = SCALE1(PADDING);
 
-	if (show_search_menu==0) { // options list: Search first, then Tools/*.pak A-Z (no Back, B goes back)
+	if (show_search_menu==0) { // Y/Options menu: Search, Tools/*.pak A-Z, Shutdown (no Back)
 		// Same geometry as search results (menu 2): a one-row GOLD header
 		// on top, list starts at ry = qy + PILL_SIZE and shows rows-1
 		// items so both screens share padding/centering.
@@ -588,7 +643,7 @@ static void Search_draw(SDL_Surface* screen, int show_setting, int fancy) {
 		// Same typography as the main rom list:
 		// normal rows use font.medium + gray in fancy mode, only the
 		// selected row grows to font.large + white + full width.
-		int topts = 1 + Tools_count(); // 0=Search, 1..T=tools
+		int topts = MenuOpt_count();
 		int orows = rows-1;
 		if (orows<1) orows = 1;
 		// Clamp selection in case Tools changed while open.
@@ -601,16 +656,31 @@ static void Search_draw(SDL_Surface* screen, int show_setting, int fancy) {
 		if (search_option>=tools_start+orows) tools_start = search_option-orows+1;
 		if (tools_start<0) tools_start = 0;
 		if (tools_start>search_option) tools_start = search_option;
+		// Fancy mode: paint the selected option's boxart behind the list,
+		// same as search results (menu 0 has no background otherwise).
+		// NOTE: cache-only here -- decoding happens in boxartPreload()
+		// so D-pad never stalls on IMG_Load.
+		if (fancy && search_option>=0 && search_option<topts) {
+			char sel_boxart[512];
+			MenuOpt_boxartPath(search_option, sel_boxart);
+			if (sel_boxart[0]) {
+				SDL_Surface* boxart = BoxartCache_get(sel_boxart);
+				if (boxart) {
+					SDL_BlitSurface(boxart, NULL, screen, &(SDL_Rect){0,0});
+				}
+			}
+		}
 		int odraw = orows;
 		if (tools_start+odraw>topts) odraw = topts-tools_start;
+		// Same geometry as search results: list always starts at
+		// ry = qy + PILL_SIZE (no vertical centering), so both screens
+		// share padding exactly.
+		int row_h = SCALE1(PILL_SIZE-(5*fancy));
 		for (int i=tools_start,j=0; i<tools_start+odraw; i++,j++) {
 			char opt_name[256];
-			if (i==0) strcpy(opt_name, "Search");
-			else {
-				Entry* tool = Tools_get(i-1);
-				if (!tool) continue;
-				strcpy(opt_name, tool->name);
-			}
+			OptKind opt_kind;
+			Entry* opt_tool = NULL;
+			if (!MenuOpt_at(i, &opt_kind, opt_name, &opt_tool)) continue;
 			int is_sel = (i==search_option);
 			TTF_Font* _font = font.large;
 			SDL_Color tc = COLOR_WHITE;
@@ -628,7 +698,6 @@ static void Search_draw(SDL_Surface* screen, int show_setting, int fancy) {
 			char display_name[256];
 			int text_width = GFX_truncateText(_font, opt_name, display_name, available_width, SCALE1(BUTTON_PADDING*2));
 			int max_width = MIN(available_width, text_width);
-			int row_h = SCALE1(PILL_SIZE-(5*fancy));
 			int row_y = ry+j*row_h;
 			if (is_sel && !fancy) {
 				GFX_blitPill(ASSET_WHITE_PILL, screen, &(SDL_Rect){sx,row_y,max_width,SCALE1(PILL_SIZE)});
@@ -2473,6 +2542,23 @@ static int getBoxartPath(Entry* entry, char* out) {
 static void boxartPreload(void) {
 	if (!fancy_mode || !boxart_screen) return;
 
+	// Y/Options menu (menu 0): preload Search/Shutdown/pak art while idle,
+	// selected item first. The draw path is cache-only so D-pad never stalls.
+	if (show_search && show_search_menu==0) {
+		int total = MenuOpt_count();
+		if (total<=0) return;
+		if (!exactMatch(preload_dir, "<options>")) {
+			strcpy(preload_dir, "<options>");
+			preload_cursor = (search_option>=0 && search_option<total) ? search_option : 0;
+		}
+		for (int n = 0; n < total; n++) {
+			int i = (preload_cursor + n) % total;
+			MenuOpt_preloadAt(i);
+			preload_cursor = (i + 1) % total;
+			return;
+		}
+		return;
+	}
 	// When search is active, preload from search_results instead of top->entries.
 	// NOTE: search_results holds SearchResult (not Entry), so use the dedicated loader.
 	if (show_search && search_results && search_results->count > 0) {
@@ -2636,8 +2722,8 @@ int main (int argc, char *argv[]) {
 					dirty = 1;
 				}
 			}
-			else if (show_search_menu==0) { // options list: 0=Search, 1..T=Tools pak (no Back)
-				int topts = 1 + Tools_count();
+			else if (show_search_menu==0) { // Y/Options menu via MenuOpt_at() (no Back)
+				int topts = MenuOpt_count();
 				// Same page size as Search_draw menu 0 (rows-1: one row
 				// is taken by the header), and its own tools_start window
 				// so results paging (search_start) never leaks in.
@@ -2660,7 +2746,12 @@ int main (int argc, char *argv[]) {
 					dirty = 1;
 				}
 				else if (PAD_justPressed(BTN_A)) {
-					if (search_option==0) {
+					OptKind act_kind;
+					Entry* act_tool = NULL;
+					if (!MenuOpt_at(search_option, &act_kind, NULL, &act_tool)) {
+						dirty = 1;
+					}
+					else if (act_kind==OPT_SEARCH) {
 						show_search_menu = 1; // enter keyboard
 						kb_text[0] = '\0';
 						kb_col = 0;
@@ -2669,11 +2760,18 @@ int main (int argc, char *argv[]) {
 						search_selected = 0;
 						search_start = 0;
 					}
+					else if (act_kind==OPT_SHUTDOWN) {
+						// Shutdown: same path as SELECT+START (keymon) --
+						// drop /tmp/poweroff and exit so MinUI.pak/launch.sh
+						// runs led off-now + shutdown
+						Search_close();
+						putFile("/tmp/poweroff", "");
+						quit = 1;
+					}
 					else {
-						Entry* tool = Tools_get(search_option-1);
-						if (tool) {
+						if (act_tool) {
 							char tool_path[512];
-							strcpy(tool_path, tool->path);
+							strcpy(tool_path, act_tool->path);
 							Search_close();
 							openPak(tool_path);
 						}

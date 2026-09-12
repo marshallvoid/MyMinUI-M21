@@ -52,7 +52,6 @@ setup:
 	cp -R ./skeleton/EXTRAS/Bios ./build/EXTRAS/Bios
 	cp -R ./skeleton/EXTRAS/Roms ./build/EXTRAS/Roms
 	cp -R ./skeleton/EXTRAS/Cheats ./build/EXTRAS/Cheats
-	cp -R ./skeleton/EXTRAS/Collections ./build/EXTRAS/Collections
 	cp -R ./skeleton/EXTRAS/Emus/$(PLATFORM) ./build/EXTRAS/Emus/$(PLATFORM)
 	cp -R ./skeleton/EXTRAS/Imgs ./build/EXTRAS/Imgs
 	cp -R ./skeleton/EXTRAS/Tools/$(PLATFORM) ./build/EXTRAS/Tools/$(PLATFORM)
