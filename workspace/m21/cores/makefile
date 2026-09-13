@@ -1,6 +1,6 @@
 CORES = fceumm gambatte gpsp pcsx_rearmed picodrive snes9x2005_plus
 CORES += beetle-pce-fast beetle-vb fake-08 mednafen_supafaust mgba pokemini fbneo mame2003-plus prboom
-CORES += neocd a5200 a7800 a2600 dosbox tyrquake wonderswan puae beetle_ngp #easyrpg #scummvm bmp2png puae
+CORES += neocd a5200 a7800 a2600 dosbox tyrquake wonderswan puae beetle_ngp desmume2015 #easyrpg #scummvm bmp2png puae
 
 ###############################
 
@@ -98,6 +98,17 @@ puae_CORE = puae2021_libretro.so
 neocd_REPO = https://github.com/libretro/neocd_libretro
 neocd_CORE = neocd_libretro.so
 #neocd_HASH = 71ebe50
+
+# NDS (desmume2015, RGB565 native -> minarch fast path downsample=0).
+# Upstream Makefile.libretro has no m21 branch -> see patches/desmume2015.patch
+# (m21 branch with DESMUME_JIT_ARM=1). DESMUME_JIT=0 keeps the x86 backend off;
+# ARM32 JIT is selected at runtime via desmume_cpu_mode=jit in default.cfg.
+desmume2015_REPO = https://github.com/libretro/desmume2015.git
+desmume2015_CORE = desmume2015_libretro.so
+desmume2015_MAKEFILE = Makefile.libretro
+desmume2015_BUILD_PATH = desmume2015/desmume
+desmume2015_FLAGS = DESMUME_JIT=0
+#desmume2015_HASH =
 
 bmp2png_REPO = https://github.com/Turro75/bmp2png
 bmp2png_CORE = bmp2png

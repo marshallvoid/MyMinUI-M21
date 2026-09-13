@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <math.h>
 #include <msettings.h>
 
 #include <unistd.h>
@@ -35,7 +36,7 @@
 
 static SDL_Surface* screen;
 static SDL_Surface* screengame;
-uint32_t black_pixel; 
+uint32_t black_pixel;
 uint32_t white_pixel;
 
 static int quit = 0;
@@ -65,7 +66,7 @@ static int playAsPlayer = 0;
 
 static pthread_t		core_pt, flip_pt;
 static pthread_mutex_t	core_mx, flip_mx;
-static pthread_cond_t	core_rq, flip_rq; 
+static pthread_cond_t	core_rq, flip_rq;
 static struct mybackbuffer	backbuffer;
 static void* coreThread(void *arg);
 static void* flipThread(void *arg);
@@ -107,12 +108,12 @@ static int coreloaded = 0;
 static struct Core {
 	int initialized;
 	int need_fullpath;
-	
+
 	const char tag[8]; // eg. GBC
 	const char name[128]; // eg. gambatte
 	const char version[128]; // eg. Gambatte (v0.5.0-netlink 7e02df6)
 	const char extensions[128]; // eg. gb|gbc|dmg
-	
+
 	const char config_dir[MAX_PATH]; // eg. /mnt/sdcard/.userdata/rg35xx/GB-gambatte
 	const char states_dir[MAX_PATH]; // eg. /mnt/sdcard/.userdata/arm-480/GB-gambatte
 	const char saves_dir[MAX_PATH]; // eg. /mnt/sdcard/Saves/GB
@@ -122,15 +123,15 @@ static struct Core {
 	double fps;
 	double sample_rate;
 	double aspect_ratio;
-	
+
 	void* handle;
 	void (*init)(void);
 	void (*deinit)(void);
-	
+
 	void (*get_system_info)(struct retro_system_info *info);
 	void (*get_system_av_info)(struct retro_system_av_info *info);
 	void (*set_controller_port_device)(unsigned port, unsigned device);
-	
+
 	void (*reset)(void);
 	void (*run)(void);
 	size_t (*serialize_size)(void);
@@ -144,7 +145,7 @@ static struct Core {
 	unsigned (*get_region)(void);
 	void *(*get_memory_data)(unsigned id);
 	size_t (*get_memory_size)(unsigned id);
-	
+
 	// retro_audio_buffer_status_callback_t audio_buffer_status;
 } core;
 
@@ -180,7 +181,7 @@ static int Zip_inflate(FILE* zip, FILE* dst, size_t size) { // compressed
 	ret = inflateInit2(&stream, -MAX_WBITS);
 	if (ret != Z_OK)
 		return ret;
-	
+
 	do {
 		size_t insize = MIN(size, ZIP_CHUNK_SIZE);
 
@@ -243,7 +244,7 @@ static struct Game {
 static void Game_open(char* path) {
 	LOG_info("Game_open\n");
 	memset(&game, 0, sizeof(game));
-	
+
 	strcpy((char*)game.path, path);
 	//LOG_info("Game.path = %s\n", game.path);
 	strcpy((char*)game.name, strrchr(path, '/')+1);
@@ -268,7 +269,7 @@ static void Game_open(char* path) {
 			}
 		}
 		extensions[i] = NULL;
-	
+
 		// if the core doesn't support zip files natively
 		if (!supports_zip) {
 			FILE *zip = fopen(game.path, "r");
@@ -276,7 +277,7 @@ static void Game_open(char* path) {
 				LOG_error("Error opening archive: %s\n\t%s\n", game.path, strerror(errno));
 				return;
 			}
-			
+
 			// extract a known file format
 			uint8_t header[ZIP_HEADER_SIZE];
 			uint32_t next = 0;
@@ -286,96 +287,96 @@ static void Game_open(char* path) {
 			char extension[8];
 			while (1) {
 				if (next) fseek(zip, next, SEEK_CUR);
-				
+
 				if (ZIP_HEADER_SIZE!=fread(header, 1, ZIP_HEADER_SIZE, zip)) break;
-				
+
 				if ((uint16_t)(header[6]) & 0x0008) break;
-				
+
 				len = ZIP_LE_READ16(&header[26]);
 				if (len>=MAX_PATH) break;
-				
+
 				if (len!=fread(filename,1,len,zip)) break;
 				filename[len] = '\0';
 				LOG_info("filename: %s\n", filename);
-				
+
 				compressed_size = ZIP_LE_READ32(&header[18]);
-				
+
 				fseek(zip, ZIP_LE_READ16(&header[28]), SEEK_CUR);
 				next = compressed_size;
-				
+
 				int found = 0;
 				for (i=0; extensions[i]; i++) {
 					sprintf(extension, ".%s", extensions[i]);
 					if (suffixMatch(extension, filename)) {
-						
+
 						found = 1;
 						break;
 					}
 				}
 				if (!found) continue;
-				
+
 				char tmp_template[MAX_PATH];
 				strcpy(tmp_template, "/tmp/minarch-XXXXXX");
 				char* tmp_dirname = mkdtemp(tmp_template);
 				// LOG_info("tmp_dirname: %s\n", tmp_dirname);
 				sprintf(game.tmp_path, "%s/%s", tmp_dirname, basename(filename));
-				
+
 				// TODO: we need to clear game.tmp_path if anything below this point fails!
-				
+
 				FILE* dst = fopen(game.tmp_path, "w");
 				if (dst==NULL) {
 					game.tmp_path[0] = '\0';
 					LOG_error("Error extracting file: %s\n\t%s\n", filename, strerror(errno));
 					return;
 				}
-				
+
 				Zip_extract_t extract = NULL;
 				switch (ZIP_LE_READ16(&header[8])) {
 					case 0: extract = Zip_copy; break;
 					case 8: extract = Zip_inflate; break;
 				}
-				
+
 				if (!extract || extract(zip,dst,compressed_size)) {
 					game.tmp_path[0] = '\0';
 					LOG_error("Error extracting file: %s\n\t%s\n", filename, strerror(errno));
 					return;
 				}
-				
+
 				fclose(dst);
-				
+
 				break;
 			}
-			
+
 			fclose(zip);
 		}
 	}
-		
+
 	// some cores handle opening files themselves, eg. pcsx_rearmed
 	// if the frontend tries to load a 500MB file itself bad things happen
 	if (!core.need_fullpath) {
 		path = game.tmp_path[0]=='\0'?game.path:game.tmp_path;
-		
+
 		FILE *file = fopen(path, "r");
 		if (file==NULL) {
 			LOG_error("Error opening game: %s\n\t%s\n", path, strerror(errno));
 			return;
 		}
-	
+
 		fseek(file, 0, SEEK_END);
 		game.size = ftell(file);
-	
+
 		rewind(file);
 		game.data = malloc(game.size);
 		if (game.data==NULL) {
 			LOG_error("Couldn't allocate memory for file: %s\n", path);
 			return;
 		}
-	
+
 		fread(game.data, sizeof(uint8_t), game.size, file);
-	
+
 		fclose(file);
 	}
-	
+
 	// m3u-based?
 	char* tmp;
 	char m3u_path[256];
@@ -385,26 +386,26 @@ static void Game_open(char* path) {
 	strcpy(m3u_path, game.path);
 	tmp = strrchr(m3u_path, '/') + 1;
 	tmp[0] = '\0';
-	
+
 	strcpy(base_path, m3u_path);
-	
+
 	tmp = strrchr(m3u_path, '/');
 	tmp[0] = '\0';
 
 	tmp = strrchr(m3u_path, '/');
 	strcpy(dir_name, tmp);
-	
-	tmp = m3u_path + strlen(m3u_path); 
+
+	tmp = m3u_path + strlen(m3u_path);
 	strcpy(tmp, dir_name);
-	
+
 	tmp = m3u_path + strlen(m3u_path);
 	strcpy(tmp, ".m3u");
-	
+
 	if (exists(m3u_path)) {
 		strcpy(game.m3u_path, m3u_path);
 		strcpy((char*)game.name, strrchr(m3u_path, '/')+1);
 	}
-	
+
 	game.is_open = 1;
 }
 static void Game_close(void) {
@@ -431,20 +432,20 @@ static void Game_changeDisc(int index) {
 			disk_control.set_eject_state(true);
 			disk_control.set_image_index(index);
 			disk_control.set_eject_state(false);
-			
+
 		} else {
 			//LOG_info("2ChangeDisc: founddiskcontrol=%d, coreDiscManaged=%d with index=%d, path=%s\n", Founddiskcontrol, coreDiscManaged, index, path);
 			disk_control.replace_image_index(index, &game_info);
-		
+
 		}
 	} else {
 		if (coreDiscManaged) {
 			//LOG_info("3ChangeDisc: founddiskcontrol=%d, coreDiscManaged=%d with index=%d, current_index=%d, path=%s\n", Founddiskcontrol, coreDiscManaged, index,disk_control_ext.get_image_index() ,path);
-			
-		
+
+
 		} else {
 			//LOG_info("4ChangeDisc: founddiskcontrol=%d, coreDiscManaged=%d with index=%d, path=%s\n", Founddiskcontrol, coreDiscManaged, index, path);
-			disk_control_ext.replace_image_index(index, &game_info);		
+			disk_control_ext.replace_image_index(index, &game_info);
 		}
 		if (disk_control_ext.set_eject_state(true)) {
 			//	LOG_info("3ChangeDisc: disk_control_ext.set_eject_state(true) SUCCESS!!!!\n");
@@ -453,8 +454,8 @@ static void Game_changeDisc(int index) {
 		if (disk_control_ext.set_eject_state(false)){
 			//LOG_info("3ChangeDisc: disk_control_ext.set_eject_state(false) SUCCESS!!!!\n");
 			}
-	}	
-	
+	}
+
 }
 
 
@@ -760,11 +761,11 @@ static void SRAM_getPath(char* filename) {
 static void SRAM_read(void) {
 	size_t sram_size = core.get_memory_size(RETRO_MEMORY_SAVE_RAM);
 	if (!sram_size) return;
-	
+
 	char filename[MAX_PATH];
 	SRAM_getPath(filename);
 	printf("sav path (read): %s\n", filename);
-	
+
 	FILE *sram_file = fopen(filename, "r");
 	if (!sram_file) return;
 
@@ -779,11 +780,11 @@ static void SRAM_read(void) {
 static void SRAM_write(void) {
 	size_t sram_size = core.get_memory_size(RETRO_MEMORY_SAVE_RAM);
 	if (!sram_size) return;
-	
+
 	char filename[MAX_PATH];
 	SRAM_getPath(filename);
 	printf("sav path (write): %s\n", filename);
-		
+
 	FILE *sram_file = fopen(filename, "w");
 	if (!sram_file) {
 		LOG_error("Error opening SRAM file: %s\n", strerror(errno));
@@ -809,11 +810,11 @@ static void RTC_getPath(char* filename) {
 static void RTC_read(void) {
 	size_t rtc_size = core.get_memory_size(RETRO_MEMORY_RTC);
 	if (!rtc_size) return;
-	
+
 	char filename[MAX_PATH];
 	RTC_getPath(filename);
 	printf("rtc path (read): %s\n", filename);
-	
+
 	FILE *rtc_file = fopen(filename, "r");
 	if (!rtc_file) return;
 
@@ -828,11 +829,11 @@ static void RTC_read(void) {
 static void RTC_write(void) {
 	size_t rtc_size = core.get_memory_size(RETRO_MEMORY_RTC);
 	if (!rtc_size) return;
-	
+
 	char filename[MAX_PATH];
 	RTC_getPath(filename);
 	printf("rtc path (write) size(%u): %s\n", rtc_size, filename);
-		
+
 	FILE *rtc_file = fopen(filename, "w");
 	if (!rtc_file) {
 		LOG_error("Error opening RTC file: %s\n", strerror(errno));
@@ -876,7 +877,7 @@ static void State_read(void) { // from picoarch
 
 	char filename[MAX_PATH];
 	State_getPath(filename);
-	
+
 	FILE *state_file = fopen(filename, "r");
 	if (!state_file) {
 		if (state_slot!=8) { // st8 is a default state in MiniUI and may not exist, that's okay
@@ -884,7 +885,7 @@ static void State_read(void) { // from picoarch
 		}
 		goto error;
 	}
-	
+
 	// some cores report the wrong serialize size initially for some games, eg. mgba: Wario Land 4
 	// so we allow a size mismatch as long as the actual size fits in the buffer we've allocated
 	if (state_size < fread(state, 1, state_size, state_file)) {
@@ -900,17 +901,17 @@ static void State_read(void) { // from picoarch
 error:
 	if (state) free(state);
 	if (state_file) fclose(state_file);
-	
+
 	fast_forward = was_ff;
 }
 static void State_write(void) { // from picoarch
 	size_t state_size = core.serialize_size();
 	LOG_info("Begin state write - size(%u) on slot %d\n", state_size, state_slot);fflush(stdout);
 	if (!state_size) return;
-	
+
 	int was_ff = fast_forward;
 	fast_forward = 0;
-	
+
 	void *state = calloc(1, state_size);
 	if (!state) {
 		LOG_error("Couldn't allocate memory for state\n");
@@ -919,7 +920,7 @@ static void State_write(void) { // from picoarch
 
 	char filename[MAX_PATH];
 	State_getPath(filename);
-	
+
 	FILE *state_file = fopen(filename, "w");
 	if (!state_file) {
 		LOG_error("Error opening state file: %s (%s)\n", filename, strerror(errno));
@@ -941,7 +942,7 @@ error:
 	if (state_file) fclose(state_file);
 
 	sync();
-	
+
 	fast_forward = was_ff;
 }
 static void State_autosave(void) {
@@ -980,7 +981,7 @@ typedef struct OptionList {
 	int count;
 	int changed;
 	Option* options;
-	
+
 	int enabled_count;
 	Option** enabled_options;
 	// OptionList_callback_t on_set;
@@ -1085,7 +1086,7 @@ enum {
 #define LOCAL_BUTTON_COUNT 16 // depends on device
 #define RETRO_BUTTON_COUNT 16 // allow L3/R3 to be remapped by user if desired, eg. Virtual Boy uses extra buttons for right d-pad
 
-typedef struct ButtonMapping { 
+typedef struct ButtonMapping {
 	char* name;
 	int retro;
 	int local; // TODO: dislike this name...
@@ -1098,7 +1099,7 @@ static ButtonMapping default_button_mapping[] = { // used if pak.cfg doesn't exi
 	{"Up",			RETRO_DEVICE_ID_JOYPAD_UP,		BTN_ID_DPAD_UP},
 	{"Down",		RETRO_DEVICE_ID_JOYPAD_DOWN,	BTN_ID_DPAD_DOWN},
 	{"Left",		RETRO_DEVICE_ID_JOYPAD_LEFT,	BTN_ID_DPAD_LEFT},
-	{"Right",		RETRO_DEVICE_ID_JOYPAD_RIGHT,	BTN_ID_DPAD_RIGHT},	
+	{"Right",		RETRO_DEVICE_ID_JOYPAD_RIGHT,	BTN_ID_DPAD_RIGHT},
 	{"A Button",	RETRO_DEVICE_ID_JOYPAD_A,		BTN_ID_A},
 	{"B Button",	RETRO_DEVICE_ID_JOYPAD_B,		BTN_ID_B},
 	{"X Button",	RETRO_DEVICE_ID_JOYPAD_X,		BTN_ID_X},
@@ -1151,7 +1152,7 @@ static const char* device_button_names[LOCAL_BUTTON_COUNT] = {
 	[BTN_ID_L2]			= "L2",
 	[BTN_ID_R2]			= "R2",
 	[BTN_ID_L3]			= "L3",
-	[BTN_ID_R3]			= "R3",	
+	[BTN_ID_R3]			= "R3",
 };
 
 
@@ -1236,7 +1237,7 @@ static struct Config {
 		.count = FE_OPT_COUNT,
 		.options = (Option[]){
 			[FE_OPT_SCALING] = {
-				.key	= "minarch_screen_scaling", 
+				.key	= "minarch_screen_scaling",
 				.name	= "Screen Scaling",
 				.desc	= "Native uses integer scaling.\nAspect uses core reported aspect ratio.\nExtended is like aspect but the it extends the image to fit 3/4 of screen.\nFullscreen has non-squarepixels.\nForce 4:3 and 3:2 guess what?",
 				.default_value = 1,
@@ -1378,7 +1379,7 @@ static int Config_getValue(char* cfg, const char* key, char* out_value, int* loc
 	};
 	if (!tmp) return 0;
 	tmp += 3;
-	
+
 	strncpy(out_value, tmp, 256);
 	out_value[256 - 1] = '\0';
 	tmp = strchr(out_value, '\n');
@@ -1405,10 +1406,10 @@ static void Config_syncFrontend(char* key, int value) {
 	int i = -1;
 	if (exactMatch(key,config.frontend.options[FE_OPT_SCALING].key)) {
 		screen_scaling 	= value;
-		
+
 		if (screen_scaling==SCALE_NATIVE) GFX_setSharpness(SHARPNESS_SHARP);
 		else GFX_setSharpness(screen_sharpness);
-		
+
 		renderer.dst_p = 0;
 		i = FE_OPT_SCALING;
 	}
@@ -1424,8 +1425,8 @@ static void Config_syncFrontend(char* key, int value) {
 			sprintf(effect_str, "2");
 		} else if (screen_effect==EFFECT_LINE) {
 			sprintf(effect_str, "1");
-		} else { 
-			sprintf(effect_str, "0"); 
+		} else {
+			sprintf(effect_str, "0");
 		}
 
 		renderer.dst_p = 0;
@@ -1482,12 +1483,12 @@ static void Config_getPath(char* filename, int override) {
 }
 static void Config_init(void) {
 	if (!config.default_cfg || config.initialized) return;
-	
+
 	LOG_info("Config_init\n");
 	char* tmp = config.default_cfg;
 	char* tmp2;
 	char* key;
-	
+
 	char button_name[128];
 	char button_id[128];
 	int i = 0;
@@ -1496,20 +1497,20 @@ static void Config_init(void) {
 		key = tmp;
 		tmp = strstr(tmp, " = ");
 		if (!tmp) break;
-		
+
 		int len = tmp-key;
 		strncpy(button_name, key, len);
 		button_name[len] = '\0';
-		
+
 		tmp += 3;
 		strncpy(button_id, tmp, 128);
 		tmp2 = strchr(button_id, '\n');
 		if (!tmp2) tmp2 = strchr(button_id, '\r');
 		if (tmp2) *tmp2 = '\0';
-		
+
 		int retro_id = -1;
 		int local_id = -1;
-		
+
 		tmp2 = strrchr(button_id, ':');
 		int remap = 0;
 		if (tmp2) {
@@ -1530,11 +1531,11 @@ static void Config_init(void) {
 				break;
 			}
 		}
-		
+
 		tmp += strlen(button_id); // prepare to continue search
-		
+
 		LOG_info("\tbind %s (%s) %i:%i\n", button_name, button_id, local_id, retro_id);
-		
+
 		// TODO: test this without a final line return
 		tmp2 = calloc(strlen(button_name)+1, sizeof(char));
 		strcpy(tmp2, button_name);
@@ -1543,7 +1544,7 @@ static void Config_init(void) {
 		button->retro = retro_id;
 		button->local = local_id;
 	};
-	
+
 	config.initialized = 1;
 }
 static void Config_quit(void) {
@@ -1564,7 +1565,7 @@ static void Config_readOptionsString(char* cfg) {
 		OptionList_setOptionValue(&config.frontend, option->key, value);
 		Config_syncFrontend(option->key, option->value);
 	}
-	
+
 	if ((has_custom_controllers == 1) && Config_getValue(cfg,"minarch_gamepad_type",value,NULL)) {
 		gamepad_type = strtol(value, NULL, 0);
 		int device = strtol(gamepad_values[gamepad_type], NULL, 0);
@@ -1575,7 +1576,7 @@ static void Config_readOptionsString(char* cfg) {
 		if (strstr(value, "On")){
 				config.controller_map_abxy_to_rstick = 1;
 			} else {
-				config.controller_map_abxy_to_rstick = 0;	
+				config.controller_map_abxy_to_rstick = 0;
 			}
 	}
 
@@ -1587,7 +1588,7 @@ static void Config_readOptionsString(char* cfg) {
 			}
 		pad.map_leftstick_to_dpad = config.controller_map_lstick_to_dpad;
 	}
-	 
+
 	for (int i=0; config.core.options[i].key; i++) {
 		Option* option = &config.core.options[i];
 		if (!Config_getValue(cfg, option->key, value, &option->lock)) continue;
@@ -1598,7 +1599,7 @@ static void Config_readControlsString(char* cfg) {
 	if (!cfg) return;
 
 	LOG_info("Config_readControlsString %s\n", cfg);fflush(stdout);
-	
+
 	char key[256];
 	char value[256];
 	char* tmp;
@@ -1606,10 +1607,10 @@ static void Config_readControlsString(char* cfg) {
 		ButtonMapping* mapping = &config.controls[i];
 		sprintf(key, "bind %s", mapping->name);
 		sprintf(value, "NONE");
-		
+
 		if (!Config_getValue(cfg, key, value, NULL)) continue;
 		if ((tmp = strrchr(value, ':'))) *tmp = '\0'; // this is a binding artifact in default.cfg, ignore
-		
+
 		int id = -1;
 		for (int j=0; button_labels[j]; j++) {
 			if (!strcmp(button_labels[j],value)) {
@@ -1618,24 +1619,24 @@ static void Config_readControlsString(char* cfg) {
 			}
 		}
 		// LOG_info("\t%s (%i)\n", value, id);
-		
+
 		int mod = 0;
 		if (id>=LOCAL_BUTTON_COUNT) {
 			id -= LOCAL_BUTTON_COUNT;
 			mod = 1;
 		}
-		
+
 		mapping->local = id;
 		mapping->mod = mod;
 	}
-	
+
 	for (int i=0; config.shortcuts[i].name; i++) {
 		ButtonMapping* mapping = &config.shortcuts[i];
 		sprintf(key, "bind %s", mapping->name);
 		sprintf(value, "NONE");
 
 		if (!Config_getValue(cfg, key, value, NULL)) continue;
-		
+
 		int id = -1;
 		for (int j=0; button_labels[j]; j++) {
 			if (!strcmp(button_labels[j],value)) {
@@ -1643,7 +1644,7 @@ static void Config_readControlsString(char* cfg) {
 				break;
 			}
 		}
-		
+
 		int mod = 0;
 		if (id>=LOCAL_BUTTON_COUNT) {
 			id -= LOCAL_BUTTON_COUNT;
@@ -1657,35 +1658,35 @@ static void Config_readControlsString(char* cfg) {
 }
 static void Config_load(void) {
 	LOG_info("Config_load\n");
-	
+
 	char* system_path = SYSTEM_PATH "/system.cfg";
 	if (exists(system_path)) config.system_cfg = allocFile(system_path);
 	else config.system_cfg = NULL;
-	
+
 	char default_path[MAX_PATH];
 	getEmuPath((char *)core.tag, default_path);
 	char* tmp = strrchr(default_path, '/');
 	strcpy(tmp,"/default.cfg");
-	
+
 	if (exists(default_path)) config.default_cfg = allocFile(default_path);
 	else config.default_cfg = NULL;
-	
+
 	char path[MAX_PATH];
 	config.loaded = CONFIG_NONE;
 	int override = 0;
 	Config_getPath(path, CONFIG_WRITE_GAME);
-	if (exists(path)) override = 1; 
+	if (exists(path)) override = 1;
 	if (!override) Config_getPath(path, CONFIG_WRITE_ALL);
-	
+
 	config.user_cfg = allocFile(path);
 	if (!config.user_cfg) return;
-	
+
 	config.loaded = override ? CONFIG_GAME : CONFIG_CONSOLE;
 }
 static void Config_free(void) {
 	if (config.system_cfg) free(config.system_cfg);
 	if (config.default_cfg) free(config.default_cfg);
-	if (config.user_cfg) free(config.user_cfg);	
+	if (config.user_cfg) free(config.user_cfg);
 	LOG_info("Config_free: waitforthread=%d thread_video=%d, toggle_thread=%d\n", waitforthread, thread_video, toggle_thread);fflush(stdout);
 }
 static void Config_readOptions(void) {
@@ -1703,16 +1704,16 @@ static void Config_write(int override) {
 	char path[MAX_PATH];
 	// sprintf(path, "%s/%s.cfg", core.config_dir, game.name);
 	Config_getPath(path, CONFIG_WRITE_GAME);
-	
+
 	if (!override) {
 		if (config.loaded==CONFIG_GAME) unlink(path);
 		Config_getPath(path, CONFIG_WRITE_ALL);
 	}
 	config.loaded = override ? CONFIG_GAME : CONFIG_CONSOLE;
-	
+
 	FILE *file = fopen(path, "wb");
 	if (!file) return;
-	
+
 	for (int i=0; config.frontend.options[i].key; i++) {
 		Option* option = &config.frontend.options[i];
 		fprintf(file, "%s = %s\n", option->key, option->values[option->value]);
@@ -1739,7 +1740,7 @@ static void Config_write(int override) {
 		if (mapping->mod) j += LOCAL_BUTTON_COUNT;
 		fprintf(file, "bind %s = %s\n", mapping->name, button_labels[j]);
 	}
-	
+
 	fclose(file);
 	sync();
 }
@@ -1754,7 +1755,7 @@ static void Config_restore(void) {
 		unlink(path);
 	}
 	config.loaded = CONFIG_NONE;
-	
+
 	for (int i=0; config.frontend.options[i].key; i++) {
 		Option* option = &config.frontend.options[i];
 		option->value = option->default_value;
@@ -1785,12 +1786,12 @@ static void Config_restore(void) {
 		mapping->local = BTN_ID_NONE;
 		mapping->mod = 0;
 	}
-	
+
 	Config_load();
 	Config_readOptions();
 	Config_readControls();
 	Config_free();
-	
+
 	renderer.dst_p = 0;
 }
 
@@ -1813,28 +1814,28 @@ static void OptionList_init(const struct retro_core_option_definition *defs) {
 	LOG_info("OptionList_init\n");
 	int count;
 	for (count=0; defs[count].key; count++);
-	
+
 	// LOG_info("count: %i\n", count);
-	
+
 	// TODO: add frontend options to this? so the can use the same override method? eg. minarch_*
-	
+
 	config.core.count = count;
 	if (count) {
 		config.core.options = calloc(count+1, sizeof(Option));
-		
+
 		for (int i=0; i<config.core.count; i++) {
 			int len;
 			const struct retro_core_option_definition *def = &defs[i];
 			Option* item = &config.core.options[i];
 			len = strlen(def->key) + 1;
-		
+
 			item->key = calloc(len, sizeof(char));
 			strcpy(item->key, def->key);
-			
+
 			len = strlen(def->desc) + 1;
 			item->name = calloc(len, sizeof(char));
 			strcpy(item->name, def->desc);
-			
+
 			if (def->info) {
 				len = strlen(def->info) + 1;
 				item->desc = calloc(len, sizeof(char));
@@ -1843,28 +1844,28 @@ static void OptionList_init(const struct retro_core_option_definition *defs) {
 				item->full = calloc(len, sizeof(char));
 				strncpy(item->full, item->desc, len);
 				// item->desc[len-1] = '\0';
-				
-				// these magic numbers are more about chars per line than pixel width 
+
+				// these magic numbers are more about chars per line than pixel width
 				// so it's not going to be relative to the screen size, only the scale
 				// what does that even mean?
 				GFX_wrapText(font.tiny, item->desc, SCALE1(240), 2); // TODO magic number!
 				GFX_wrapText(font.medium, item->full, SCALE1(240), 7); // TODO: magic number!
 			}
-		
+
 			for (count=0; def->values[count].value; count++);
-		
+
 			item->count = count;
 			item->values = calloc(count+1, sizeof(char*));
 			item->labels = calloc(count+1, sizeof(char*));
-	
+
 			for (int j=0; j<count; j++) {
 				const char* value = def->values[j].value;
 				const char* label = def->values[j].label;
-		
+
 				len = strlen(value) + 1;
 				item->values[j] = calloc(len, sizeof(char));
 				strcpy(item->values[j], value);
-		
+
 				if (label) {
 					len = strlen(label) + 1;
 					item->labels[j] = calloc(len, sizeof(char));
@@ -1875,10 +1876,10 @@ static void OptionList_init(const struct retro_core_option_definition *defs) {
 				}
 				// printf("\t%s\n", item->labels[j]);
 			}
-			
+
 			item->value = Option_getValueIndex(item, def->default_value);
 			item->default_value = item->value;
-			
+
 			LOG_info("\tINIT %d/%d %s (%s) TO %s (%s)\n", i+1, config.core.count, item->name, item->key, item->labels[item->value], item->values[item->value]);
 		}
 	}
@@ -1888,11 +1889,11 @@ static void OptionList_vars(const struct retro_variable *vars) {
 	LOG_info("OptionList_vars\n");
 	int count;
 	for (count=0; vars[count].key; count++);
-	
+
 	config.core.count = count;
 	if (count) {
 		config.core.options = calloc(count+1, sizeof(Option));
-	
+
 		for (int i=0; i<config.core.count; i++) {
 			int len;
 			const struct retro_variable *var = &vars[i];
@@ -1901,22 +1902,22 @@ static void OptionList_vars(const struct retro_variable *vars) {
 			len = strlen(var->key) + 1;
 			item->key = calloc(len, sizeof(char));
 			strcpy(item->key, var->key);
-			
+
 			len = strlen(var->value) + 1;
 			item->var = calloc(len, sizeof(char));
 			strcpy(item->var, var->value);
-			
+
 			char* tmp = strchr(item->var, ';');
 			if (tmp && *(tmp+1)==' ') {
 				*tmp = '\0';
 				item->name = item->var;
 				tmp += 2;
 			}
-			
+
 			char* opt = tmp;
 			for (count=0; (tmp=strchr(tmp, '|')); tmp++, count++);
 			count += 1; // last entry after final '|'
-		
+
 			item->count = count;
 			item->values = calloc(count+1, sizeof(char*));
 			item->labels = calloc(count+1, sizeof(char*));
@@ -1928,11 +1929,11 @@ static void OptionList_vars(const struct retro_variable *vars) {
 				item->labels[j] = opt;
 				*tmp = '\0';
 				tmp += 1;
-				opt = tmp; 
+				opt = tmp;
 			}
 			item->values[j] = opt;
 			item->labels[j] = opt;
-			
+
 			// no native default_value support for retro vars
 			item->value = 0;
 			item->default_value = item->value;
@@ -1943,7 +1944,7 @@ static void OptionList_vars(const struct retro_variable *vars) {
 }
 static void OptionList_reset(void) {
 	if (!config.core.count) return;
-	
+
 	for (int i=0; i<config.core.count; i++) {
 		Option* item = &config.core.options[i];
 		if (item->var) {
@@ -1981,7 +1982,7 @@ static Option* OptionList_getOption(OptionList* list, const char* key) {
 static char* OptionList_getOptionValue(OptionList* list, const char* key) {
 	Option* item = OptionList_getOption(list, key);
 	if (item) LOG_info("\tGET %s (%s) = %s (%s)\n", item->name, item->key, item->labels[item->value], item->values[item->value]);
-	
+
 	if (item) return item->values[item->value];
 	else LOG_warn("unknown option %s \n", key);
 	return NULL;
@@ -2029,7 +2030,7 @@ static void wait_For_Thread(void) {
 	pthread_mutex_lock(&core_mx);
 	should_run_core = 0;
 	pthread_mutex_unlock(&core_mx);
-	//wait 50msecs to be sure the core has stopped 
+	//wait 50msecs to be sure the core has stopped
 //	LOG_info("wait_For_Thread IN1: render = %i - rendering = %i\n",render,rendering);fflush(stdout);
 //	usleep(25000);
 //	LOG_info("wait_For_Thread IN2: render = %i - rendering = %i\n",render,rendering);fflush(stdout);
@@ -2042,9 +2043,13 @@ static void wait_For_Thread(void) {
 	//wait 25msecs to be sure the flip thread has renderer the last frame
 //	usleep(25000);
 //	LOG_info("wait_For_Thread IN4: render = %i - rendering = %i\n",render,rendering);fflush(stdout);
-	int rendering2 = 100;
+	int rendering2 = 2000;
 	//check if render and renderer are both 0, wait at least 1000msecs the go forward
-	while (((render!=0) || (rendering!=0)) && (rendering2>0)) { 
+	// (bumped from 100 polls/100ms: heavy cores like desmume2015 JIT can take
+	// well over 100ms for a single frame, so the old bound could force
+	// render/rendering to 0 while the core thread was still mid-frame,
+	// racing with Menu_loop's surface resize/free -> crash entering menu)
+	while (((render!=0) || (rendering!=0)) && (rendering2>0)) {
 		//LOG_info("rendering in Menu_loop render = %i - rendering = %i\n",render,rendering);fflush(stdout);
 		usleep(1000);
 		rendering2--; //waiting a bit ensure that menu won't crash even on some cores (i.e. dosbox)
@@ -2066,6 +2071,18 @@ static int setFastForward(int enable) {
 
 uint32_t buttons = 0; // RETRO_DEVICE_ID_JOYPAD_* buttons
 int16_t analogs[16] = {0};
+// NDS stylus cursor in touch-screen pixels (256x192), mirrored from the
+// emulated right stick below; consumed by input_state_callback POINTER.
+static int16_t nds_stylus_x = 256 / 2;
+static int16_t nds_stylus_y = 192 / 2;
+static int nds_stylus_enable = 1; // 0 = passthrough analogs untouched
+// NDS mouse-mode (joycon-as-mouse): hold L1 to turn Dpad + ABXY into a
+// stylus cursor pad. While held those buttons stop sending game input and
+// instead steer the cursor with press-and-hold repeat acceleration;
+// R2 still acts as touch press (L2 is wired to the NDS Lid button by
+// default.cfg, not touch, so it isn't overloaded here). Release L1 to
+// play normally.
+static int nds_mouse_hold_ticks = 0;
 static int ignore_menu = 0;
 static void input_poll_callback(void) {
 	PAD_poll();
@@ -2080,7 +2097,7 @@ static void input_poll_callback(void) {
 	if (PAD_isPressed(BTN_MENU) && (PAD_isPressed(BTN_PLUS) || PAD_isPressed(BTN_MINUS))) {
 		ignore_menu = 1;
 	}
-	
+
 	if (PAD_justPressed(BTN_POWER)) {
 		if (thread_video) {
 
@@ -2102,7 +2119,7 @@ static void input_poll_callback(void) {
 			Menu_beforeSleep();
 			PWR_powerOff();
 		}
-		
+
 	}
 
 	static int toggled_ff_on = 0; // this logic only works because TOGGLE_FF is before HOLD_FF in the menu...
@@ -2131,7 +2148,7 @@ static void input_poll_callback(void) {
 				}
 			}
 			else if (i==SHORTCUT_HOLD_FF) {
-				// don't allow turn off fast_forward with a release of the hold button 
+				// don't allow turn off fast_forward with a release of the hold button
 				// if it was initially turned on with the toggle button
 				if (PAD_justPressed(btn) || (!toggled_ff_on && (PAD_justReleased(btn) || PAD_justReleasedShort(btn)))) {
 					fast_forward = setFastForward(PAD_isPressed(btn));
@@ -2159,17 +2176,17 @@ static void input_poll_callback(void) {
 						break;
 					default: break;
 				}
-				
+
 				if (mapping->mod) ignore_menu = 1;
 			}
 		}
 	}
-	
+
 	if (!ignore_menu && (PAD_justReleased(BTN_MENU) || PAD_justReleasedShort(BTN_MENU))) {
 		show_menu = 1;
 		//firstmenu = 1;
 	}
-	
+
 	// TODO: figure out how to ignore button when MENU+button is handled first
 	// TODO: array size of LOCAL_ whatever that macro is
 	// TODO: then split it into two loops
@@ -2178,7 +2195,7 @@ static void input_poll_callback(void) {
 	// TODO: then check for button
 	// TODO: only modify if absent from array
 	// TODO: the shortcuts loop above should also contribute to the array
-	
+
 	buttons = 0;
 	analogs[0] = pad.laxis.x;
 	analogs[1] = pad.laxis.y; //pad.laxis.y;
@@ -2188,6 +2205,10 @@ static void input_poll_callback(void) {
 	analogs[13] =  0;
 	analogs[14] =  0;
 	analogs[15] =  0;
+	// M22 has no L3. Use that unused libretro bit as a private signal for
+	// desmume2015 to show its crosshair only while L1 mouse-mode is held.
+	if (nds_stylus_enable && PAD_isPressed(BTN_L1))
+		buttons |= 1 << RETRO_DEVICE_ID_JOYPAD_L3;
 	for (int i=0; config.controls[i].name; i++) {
 		ButtonMapping* mapping = &config.controls[i];
 		int btn = 1 << mapping->local;
@@ -2200,19 +2221,67 @@ static void input_poll_callback(void) {
 			analogs[13] = btn_retro==BTN_R2 ? 0x7fff : 0;
 			analogs[14] = btn_retro==BTN_L3 ? 0x7fff : 0;
 			analogs[15] = btn_retro==BTN_R3 ? 0x7fff : 0;
-			if (config.controller_map_abxy_to_rstick == 1) {
-				//	 if (btn==BTN_LEFT) 	analogs[0]= 0x7fff; 
-				//else if (btn==BTN_RIGHT) 	analogs[0]= -0x7fff;
-				//else if (btn==BTN_DOWN) 	analogs[1]= 0x7fff;
-				//else if (btn==BTN_UP) 		analogs[1]= -0x7fff;
-				/*else*/ if (btn==BTN_A)	analogs[2]= 0x7fff; 
-				else if (btn==BTN_Y) 		analogs[2]= -0x7fff;
-				else if (btn==BTN_B) 		analogs[3]= 0x7fff;
-				else if (btn==BTN_X) 		analogs[3]= -0x7fff;
+			// NDS mouse-mode: holding L1 turns Dpad+ABXY into a cursor pad.
+			// Those direction buttons must not leak into the game while held.
+			if (nds_stylus_enable && PAD_isPressed(BTN_L1)) {
+				if (btn==BTN_DPAD_UP || btn==BTN_DPAD_DOWN
+					|| btn==BTN_DPAD_LEFT || btn==BTN_DPAD_RIGHT
+					|| btn==BTN_A || btn==BTN_B || btn==BTN_X || btn==BTN_Y
+					|| btn==BTN_L1) {
+					buttons &= ~(1 << mapping->retro);
+				}
+			}
+			// desmume2015 absolute cursor reads the right stick, and the
+			// core ORs JOYPAD_R2 into have_touch, so: ABXY steer the cursor
+			// (gated on MapABXYtoRightStick), holding R2 = stylus press.
+			// POINTER branch below mirrors the cursor for pointer-mode
+			// (touch-screen pixels 0..255/0..191; branch maps to frame).
+			// Mouse-mode (L1 held): Dpad joins ABXY as cursor keys with
+			// press-and-hold repeat acceleration (slow start, speeds up).
+			// Cursor is stepped in touch-screen pixels directly (not in
+			// analog units) so movement is smooth at 1px/poll instead of
+			// jumping ~16px per press; analogs[2]/[3] are then derived from
+			// the pixel position for cores reading the absolute stick.
+			if (nds_stylus_enable && config.controller_map_abxy_to_rstick == 1 && PAD_isPressed(BTN_L1)) {
+				int mouse_mode = PAD_isPressed(BTN_L1);
+				int px_step = 1;
+				if (mouse_mode) {
+					nds_mouse_hold_ticks++;
+					// accelerate: 1px first ~15 polls, 3px after, 6px after 45
+					if (nds_mouse_hold_ticks > 45) px_step = 6;
+					else if (nds_mouse_hold_ticks > 15) px_step = 3;
+				} else {
+					nds_mouse_hold_ticks = 0;
+				}
+				// diamond layout matching physical button position: Y=up,
+				// B=right, A=down, X=left.
+				if (btn==BTN_Y) { nds_stylus_y -= px_step; }
+				else if (btn==BTN_A) { nds_stylus_y += px_step; }
+				else if (btn==BTN_X) { nds_stylus_x -= px_step; }
+				else if (btn==BTN_B) { nds_stylus_x += px_step; }
+				if (mouse_mode) {
+					if (btn==BTN_DPAD_LEFT) { nds_stylus_x -= px_step; }
+					else if (btn==BTN_DPAD_RIGHT) { nds_stylus_x += px_step; }
+					else if (btn==BTN_DPAD_UP) { nds_stylus_y -= px_step; }
+					else if (btn==BTN_DPAD_DOWN) { nds_stylus_y += px_step; }
+				}
+				if (nds_stylus_x > 255) nds_stylus_x = 255;
+				if (nds_stylus_x < 0) nds_stylus_x = 0;
+				if (nds_stylus_y > 191) nds_stylus_y = 191;
+				if (nds_stylus_y < 0) nds_stylus_y = 0;
+				// desmume2015's "absolute" pointer_device_r maps the right stick
+				// through TouchX = sqrt(2)*128*analogX/32768 + 127.5 (an ellipse,
+				// not a straight 1:1 stretch) purely to refresh its on-screen
+				// crosshair (FramesWithPointer); it does NOT itself register a
+				// touch (that's R2 below via RETRO_DEVICE_POINTER). Invert that
+				// exact formula so the crosshair lines up with where R2 will
+				// actually tap instead of drifting to a different spot.
+				analogs[2] = (int16_t)(((double)nds_stylus_x - 127.5) * 32768.0 / (sqrt(2.0) * 128.0));
+				analogs[3] = (int16_t)(((double)nds_stylus_y - 95.5) * 32768.0 / (sqrt(2.0) * 96.0));
 			}
 		}
 		//  && !PWR_ignoreSettingInput(btn, show_setting)
-	}	
+	}
 	// if (buttons) LOG_info("buttons: %i\n", buttons);
 }
 static int16_t input_state_callback(unsigned port, unsigned device, unsigned index, unsigned id) {
@@ -2224,11 +2293,46 @@ static int16_t input_state_callback(unsigned port, unsigned device, unsigned ind
 	if (port == playAsPlayer && device == RETRO_DEVICE_ANALOG && index<2){
 	//	LOG_info("Returned analog <2 %d\n", analogs[index*2+id]);
 		return analogs[index*2+id];
-	}	
+	}
 	if (port == playAsPlayer && device == RETRO_DEVICE_ANALOG && index>1){
 	//	LOG_info("Returned analog %d=%d\n", id, analogs[id]);
 		return analogs[id];
-	}	
+	}
+	if (port == playAsPlayer && device == RETRO_DEVICE_POINTER && index == 0) {
+		// desmume2015 POINTER path (pointer_type=touch, pointer_mouse=enabled).
+		// Core maps reported coords through the active layout itself:
+		//   stacked top/bottom (256x384): touch screen at touch_y=192,
+		//     report full-frame coords (x 0..255, y 0..383).
+		//   side-by-side left/right (512x192): touch = right half
+		//     (touch_x=256), report full-frame x 0..511.
+		//   single 256x192 (top/bottom only): touch = full frame.
+		// X/Y range is -0x8000..0x7fff. Pressed mirrors JOYPAD_R2
+		// (core also ORs R2 into have_touch).
+		if (id == RETRO_DEVICE_ID_POINTER_PRESSED)
+			return (buttons & (1 << RETRO_DEVICE_ID_JOYPAD_R2)) ? 1 : 0;
+		if (id == RETRO_DEVICE_ID_POINTER_COUNT) return 1;
+		// Core computes: x = (POINTER_X + 32768) * (layout.width / 65536),
+		// then requires touch_x <= x < touch_x+256 (and same for y/height=192)
+		// to accept the touch. Invert exactly (integer factors: 128 for a
+		// 512-wide frame, 256 for a 256-wide one) instead of an approximate
+		// /511 or /383 divisor, which could round just outside that window.
+		if (id == RETRO_DEVICE_ID_POINTER_X) {
+			int32_t touch_x_off = (backbuffer.w == 512) ? 256 : 0;
+			int32_t target_x = touch_x_off + nds_stylus_x;
+			return (int16_t)((int64_t)target_x * 65536 / backbuffer.w - 0x8000);
+		}
+		if (id == RETRO_DEVICE_ID_POINTER_Y) {
+			int32_t touch_y_off = (backbuffer.w == 256 && backbuffer.h == 384) ? 192 : 0;
+			int32_t target_y = touch_y_off + nds_stylus_y;
+			return (int16_t)((int64_t)target_y * 65536 / backbuffer.h - 0x8000);
+		}
+		return 0;
+	}
+	if (port == playAsPlayer && device == RETRO_DEVICE_MOUSE && index == 0) {
+		// desmume2015 MOUSE path (pointer_type=mouse): relative deltas;
+		// no physical mouse on m21/M22 so report 0 (no drift, no click).
+		return 0;
+	}
 	return 0;
 }
 ///////////////////////////////
@@ -2238,9 +2342,9 @@ static void Input_init(const struct retro_input_descriptor *vars) {
 	if (input_initialized) return;
 
 	LOG_info("Input_init\n");
-	
+
 	config.controls = core_button_mapping[0].name ? core_button_mapping : default_button_mapping;
-	
+
 	puts("---------------------------------");
 
 	const char* core_button_names[RETRO_BUTTON_COUNT] = {0};
@@ -2267,7 +2371,7 @@ static void Input_init(const struct retro_input_descriptor *vars) {
 	} else {
 		LOG_info("Input data actually not received\n");
 	}
-	
+
 	puts("---------------------------------");
 
 	for (int i=0;default_button_mapping[i].name; i++) {
@@ -2275,7 +2379,7 @@ static void Input_init(const struct retro_input_descriptor *vars) {
 		LOG_info("DEFAULT %s (%s): <%s>\n", core_button_names[mapping->retro], mapping->name, (mapping->local==BTN_ID_NONE ? "NONE" : device_button_names[mapping->local]));
 		if (core_button_names[mapping->retro]) mapping->name = (char*)core_button_names[mapping->retro];
 	}
-	
+
 	puts("---------------------------------");
 
 	for (int i=0; config.controls[i].name; i++) {
@@ -2289,7 +2393,7 @@ static void Input_init(const struct retro_input_descriptor *vars) {
 		}
 		LOG_info("%s: <%s> (%i:%i)\n", mapping->name, (mapping->local==BTN_ID_NONE ? "NONE" : device_button_names[mapping->local]), mapping->local, mapping->retro);
 	}
-	
+
 	puts("---------------------------------");
 	input_initialized = 1;
 }
@@ -2305,7 +2409,7 @@ static bool set_rumble_state(unsigned port, enum retro_rumble_effect effect, uin
 
 static bool environment_callback(unsigned cmd, void *data) { // copied from picoarch initially
 //	LOG_info("Received environment_callback: %i\n", cmd);
-	
+
 	switch(cmd) {
 	case RETRO_ENVIRONMENT_SET_ROTATION: { // 1 wait to activate until rotation render is working
 		int *out = (int *)data;
@@ -2343,27 +2447,27 @@ static bool environment_callback(unsigned cmd, void *data) { // copied from pico
 		if (out) {
 			*out = core.bios_dir;
 		}
-		
+
 		break;
 	}
 	case RETRO_ENVIRONMENT_SET_PIXEL_FORMAT: { /* 10 */
 		const enum retro_pixel_format *format = (enum retro_pixel_format *)data;
 		LOG_info("SET RETRO_ENVIRONMENT_SET_PIXEL_FORMAT: %i\n", *format);
-		if (*format == RETRO_PIXEL_FORMAT_0RGB1555) { // TODO: pull from platform.h?		
-			downsample = 2; 
+		if (*format == RETRO_PIXEL_FORMAT_0RGB1555) { // TODO: pull from platform.h?
+			downsample = 2;
 			backbuffer.depth = 15;
 			return true;
-		}		
+		}
 
 		if (*format == RETRO_PIXEL_FORMAT_RGB565) { // TODO: pull from platform.h?
 			/* 565 is only supported format */
 			downsample = 0;
 			backbuffer.depth = 16;
 			return true;
-		} 
+		}
 
 		if (*format == RETRO_PIXEL_FORMAT_XRGB8888) { // TODO: pull from platform.h?
-			downsample = 1; 
+			downsample = 1;
 			backbuffer.depth = 32;
 			return true;
 		}
@@ -2440,7 +2544,7 @@ static bool environment_callback(unsigned cmd, void *data) { // copied from pico
 case RETRO_ENVIRONMENT_GET_INPUT_DEVICE_CAPABILITIES: {
 		unsigned *out = (unsigned *)data;
 		if (out)
-			*out = (1 << RETRO_DEVICE_JOYPAD) | (1 << RETRO_DEVICE_ANALOG);
+			*out = (1 << RETRO_DEVICE_JOYPAD) | (1 << RETRO_DEVICE_ANALOG) | (1 << RETRO_DEVICE_POINTER);
 		break;
 	}
 	case RETRO_ENVIRONMENT_GET_LOG_INTERFACE: { /* 27 */
@@ -2516,7 +2620,7 @@ case RETRO_ENVIRONMENT_GET_INPUT_DEVICE_CAPABILITIES: {
 		// puts("RETRO_ENVIRONMENT_SET_CORE_OPTIONS");
 		if (data) {
 			OptionList_reset();
-			OptionList_init((const struct retro_core_option_definition *)data); 
+			OptionList_init((const struct retro_core_option_definition *)data);
 			Config_readOptions();
 		}
 		break;
@@ -2555,7 +2659,7 @@ case RETRO_ENVIRONMENT_GET_INPUT_DEVICE_CAPABILITIES: {
 	}
 	// TODO: RETRO_ENVIRONMENT_GET_MESSAGE_INTERFACE_VERSION 59
 	// TODO: used by mgba, (but only during frameskip?)
-	
+
 	case RETRO_ENVIRONMENT_SET_AUDIO_BUFFER_STATUS_CALLBACK: { /* 62 */
 	 	LOG_info("RETRO_ENVIRONMENT_SET_AUDIO_BUFFER_STATUS_CALLBACK does nothing\n");
 	// 	const struct retro_audio_buffer_status_callback *cb = (const struct retro_audio_buffer_status_callback *)data;
@@ -2589,7 +2693,7 @@ case RETRO_ENVIRONMENT_GET_INPUT_DEVICE_CAPABILITIES: {
 		const struct retro_system_content_info_override* info = (const struct retro_system_content_info_override* )data;
 		if (info) {
 			LOG_info("RETRO_ENVIRONMENT_SET_CONTENT_INFO_OVERRIDE has overrides");fflush(stdout);
-			
+
 		}
 		break;
 	}
@@ -2608,7 +2712,7 @@ case RETRO_ENVIRONMENT_GET_INPUT_DEVICE_CAPABILITIES: {
 
 		int *out = (int *)data;
 		if (out) *out = 1;
-		
+
 		break;
 	}
 	case RETRO_ENVIRONMENT_GET_SAVESTATE_CONTEXT: {
@@ -2618,7 +2722,7 @@ case RETRO_ENVIRONMENT_GET_INPUT_DEVICE_CAPABILITIES: {
             *(int*)data = result;
 			break;
 	}
-	
+
 	// unused
 	// case RETRO_ENVIRONMENT_SET_FRAME_TIME_CALLBACK: {
 	// 	puts("RETRO_ENVIRONMENT_SET_FRAME_TIME_CALLBACK"); fflush(stdout);
@@ -2632,7 +2736,7 @@ case RETRO_ENVIRONMENT_GET_INPUT_DEVICE_CAPABILITIES: {
 	// 	puts("RETRO_ENVIRONMENT_GET_FASTFORWARDING"); fflush(stdout);
 	// 	break;
 	// };
-	
+
 	default:
 		LOG_debug("Unsupported environment cmd: %u\n", cmd);fflush(stdout);
 		return false;
@@ -2660,7 +2764,7 @@ enum {
 static void MSG_init(void) {
 	digits = SDL_CreateRGBSurface(SDL_SWSURFACE,SCALE1(DIGIT_WIDTH*DIGIT_COUNT) , SCALE1(DIGIT_HEIGHT) ,FIXED_DEPTH, 0,0,0,0);
 	SDL_FillRect(digits, NULL, RGB_BLACK);
-	
+
 	SDL_Surface* digit;
 	char* chars[] = { "0","1","2","3","4","5","6","7","8","9","/",".","%","x","(",")", NULL };
 	char* c;
@@ -2679,7 +2783,7 @@ static int MSG_blitChar(int n, int x, int y) {
 static int MSG_blitInt(int num, int x, int y) {
 	int i = num;
 	int n;
-	
+
 	if (i > 999) {
 		n = i / 1000;
 		i -= n * 1000;
@@ -2701,22 +2805,22 @@ static int MSG_blitInt(int num, int x, int y) {
 	else if (num>9) {
 		x = MSG_blitChar(0,x,y);
 	}
-	
+
 	n = i;
 	x = MSG_blitChar(n,x,y);
-	
+
 	return x;
 }
 static int MSG_blitDouble(double num, int x, int y) {
 	int i = num;
 	int r = (num-i) * 10;
 	int n;
-	
+
 	x = MSG_blitInt(i, x,y);
 
 	n = DIGIT_DOT;
 	x = MSG_blitChar(n,x,y);
-	
+
 	n = r;
 	x = MSG_blitChar(n,x,y);
 	return x;
@@ -2874,16 +2978,16 @@ static void blitBitmapText(char* text, int ox, int oy, SDL_Surface *surface, int
     int len = strlen(text);
     int w = ((_CHAR_WIDTH + _LETTERSPACING) * len) - _LETTERSPACING;
     int h = _CHAR_HEIGHT;
-    
+
     // Superficie a 32-bit fissa: garantisce la compatibilità con rotozoom su SDL 1.2 e SDL2
-    SDL_Surface *temp = SDL_CreateRGBSurface(SDL_SWSURFACE, w, h, 32, 
+    SDL_Surface *temp = SDL_CreateRGBSurface(SDL_SWSURFACE, w, h, 32,
 #if SDL_BYTEORDER == SDL_BIG_ENDIAN
         0xff000000, 0x00ff0000, 0x0000ff00, 0x000000ff
 #else
         0x000000ff, 0x0000ff00, 0x00ff0000, 0xff000000
 #endif
     );
-    
+
     if (temp == NULL) return;
 
     // Sfondo nero opaco (Alpha impostato a 255/massimo, così non è trasparente)
@@ -2918,7 +3022,7 @@ static void blitBitmapText(char* text, int ox, int oy, SDL_Surface *surface, int
                 // Font 24x15: array di uint16_t [256][24]
                 row_bits = ((const uint16_t(*)[24])font_ptr)[char_code][y_idx];
             }
-            
+
             for (int x_idx = 0; x_idx < _CHAR_WIDTH; x_idx++) {
                 // Controlla se il bit è attivo usando la base di shift corretta (7 o 15)
                 if (row_bits & (1 << (shift_base - x_idx))) {
@@ -2937,7 +3041,7 @@ static void blitBitmapText(char* text, int ox, int oy, SDL_Surface *surface, int
 #endif
 
 	SDL_Surface* rotated;
-	
+
 //	int screenrotate = PLAT_getScreenRotation(0);
 //	LOG_info("systemrotate:%d system rotate game:%d Screen rotate:%d Game rotate:%d\n", renderer.rotate, renderer.rotategame, screenrotate, gamerotate);fflush(stdout);
 	switch (gamerotate) {
@@ -2949,7 +3053,7 @@ static void blitBitmapText(char* text, int ox, int oy, SDL_Surface *surface, int
 				if (_oy<0) {_oy = height+y-h+_oy;} else { _oy = y + _oy; }
 				SDL_BlitSurface(temp, NULL, surface, &(SDL_Rect){ox, _oy});
 				break;
-			
+
 		case 1: //my282
 				rotated = rotateSurface90Degrees(temp, 3);
 		//		LOG_info("blitBitmapText180 rot1 text:%s ox:%d oy:%d x:%d y:%d w:%d h:%d width:%d height:%d rotated_w:%d rotated_h:%d\n", text, ox, oy, x, y, w, h, width, height, rotated->w, rotated->h);fflush(stdout);
@@ -2981,9 +3085,9 @@ static void blitBitmapText(char* text, int ox, int oy, SDL_Surface *surface, int
 				if (_oy >= 0) {fax = width + x - h  - _oy; } else { fax = x - _oy; }
 				SDL_BlitSurface(rotated, NULL, surface, &(SDL_Rect){fax,fay});
 				SDL_FreeSurface(rotated);
-				break;			
+				break;
 	}
-	
+
 	SDL_FreeSurface(temp);
 }
 ///////////////////////////////
@@ -2997,7 +3101,7 @@ static double fps2_double = 0;
 //static double cpu_double = 0;
 static double use_double = 0;
 static char cpuload[128];
-		
+
 static uint32_t sec_start = 0;
 
 
@@ -3031,7 +3135,7 @@ void getCPUusage(char * data) {
        up[counter]=up1[counter];
        idle[counter]=idle1[counter];
      }
-	int cputemp = PLAT_getProcessorTemp();	
+	int cputemp = PLAT_getProcessorTemp();
 	sprintf(data,"%s/%dc/%dMHz", data, cputemp, cur_cpu_freq);
 	fclose(fp);
 }
@@ -3042,18 +3146,18 @@ void video_refresh_callback_rotate(int rotation, void *data, unsigned width, uns
 	//struct timeval now, now1, now2, now3, now4, now5, now6;
 //	gettimeofday(&now,NULL);
 	rotateIMG(data, renderer.src_surface->pixels, rotation, width, height, pitch);
-	//gettimeofday(&now1,NULL);	
+	//gettimeofday(&now1,NULL);
 	if (renderer.true_w != width || renderer.true_h != height || renderer.true_p != pitch){
 		LOG_info("Game Rotation of %ddeg calls RESIZE %ix%i_%i\n", rotation*90, width, height, pitch);fflush(stdout);
 		renderer.resize = 1;
 		renderer.true_w = width;
 		renderer.true_h = height;
-		renderer.true_p = pitch;	
+		renderer.true_p = pitch;
 		renderer.src_surface->w=width * ((3 - renderer.rotate) % 2) + height * (renderer.rotate % 2);
 		renderer.src_surface->h=width * (renderer.rotate % 2) + height * ((3-renderer.rotate) % 2);
 		renderer.src_surface->pitch=pitch;
-		if (rotation % 2) renderer.src_surface->pitch=renderer.src_surface->w*2;	
-	} 	
+		if (rotation % 2) renderer.src_surface->pitch=renderer.src_surface->w*2;
+	}
 //	LOG_info("Game Rotation of %d %dx%d_%d - rotate %dusec - freesurface %dusec - createsurface %dusec - pixman %dusec\n", rotation*90, width, height, pitch, now1.tv_usec - now.tv_usec, now1.tv_usec - now.tv_usec ,now2.tv_usec - now1.tv_usec, now3.tv_usec - now2.tv_usec);fflush(stdout);
 }
 
@@ -3071,7 +3175,7 @@ SDL_Rect video_refresh_callback_resize_native(void) {
 	//scale = MIN(scale, screen_max_scale+1);
 	LOG_info("width %d height %d / screenwidth %d screenheight %d -> scale %d max_xscale %d max_yscale %d\n", renderer.src_surface->w, renderer.src_surface->h, GAME_WIDTH, GAME_HEIGHT, scale, max_xscale, max_yscale);fflush(stdout);
 	//calculate offsets
-	
+
 	int dst_w = renderer.src_surface->w * scale;
 	int dst_h = renderer.src_surface->h * scale;
 	int dst_x = (GAME_WIDTH - dst_w) / 2;
@@ -3086,7 +3190,7 @@ SDL_Rect video_refresh_callback_resize_native(void) {
 /*
 SDL_Rect video_refresh_callback_resize_aspect(void) {
 	LOG_info("RESIZE ASPECT\n");fflush(stdout);
-	//maximum scaling keeping original aspect ratio 
+	//maximum scaling keeping original aspect ratio
 	SDL_Rect retvalue;
 	int dst_x,dst_y,dst_w,dst_h;
 	double sysaspect = 1.0 * GAME_WIDTH / GAME_HEIGHT;
@@ -3099,12 +3203,12 @@ SDL_Rect video_refresh_callback_resize_aspect(void) {
 		dst_x = 0;
 		dst_y = (GAME_HEIGHT - dst_h) / 2;
 	} else {
-		//portrait -> height limited		
+		//portrait -> height limited
 		dst_h = GAME_HEIGHT;
 		double _dst_w = 1.0 * dst_h * aspect;
 		dst_w = (int)_dst_w;
 		dst_x = (GAME_WIDTH - dst_w) / 2;
-		dst_y = 0;		
+		dst_y = 0;
 	}
 	retvalue.x = dst_x;
 	retvalue.y = dst_y;
@@ -3118,7 +3222,7 @@ SDL_Rect video_refresh_callback_resize_aspect(void) {
 SDL_Rect video_refresh_callback_resize_extended(void) {
 	LOG_info("RESIZE EXTENDED\n");fflush(stdout);
 	//maximum scaling keeping original aspect ratio then expand the shortest dimensione to fill better the screen
-	// for games that have a too narrow or too low aspect ratio (i.e. 1941 arcade) 
+	// for games that have a too narrow or too low aspect ratio (i.e. 1941 arcade)
 	SDL_Rect retvalue;
 	int dst_x,dst_y,dst_w,dst_h;
 	double sysaspect = 1.0 * GAME_WIDTH / GAME_HEIGHT;
@@ -3135,7 +3239,7 @@ SDL_Rect video_refresh_callback_resize_extended(void) {
 			dst_y = (GAME_HEIGHT - dst_h) / 2;
 		}
 	} else {
-		//portrait -> height limited		
+		//portrait -> height limited
 		dst_h = GAME_HEIGHT;
 		double _dst_w = 1.0 * dst_h * aspect;
 		dst_w = (int)_dst_w;
@@ -3144,7 +3248,7 @@ SDL_Rect video_refresh_callback_resize_extended(void) {
 			dst_w = dst_w + dst_x;
 			dst_x = (GAME_WIDTH - dst_w) / 2;
 		}
-		dst_y = 0;		
+		dst_y = 0;
 	}
 	retvalue.x = dst_x;
 	retvalue.y = dst_y;
@@ -3161,14 +3265,14 @@ SDL_Rect video_refresh_callback_resize_custom(int use_screen_rotation, int aspec
 	SDL_Rect retvalue;
 	int dst_x,dst_y,dst_w,dst_h;
 	int is_screen_portrait = (GAME_HEIGHT > GAME_WIDTH);
-    
+
     // Se lo schermo è verticale, invertiamo l'aspect ratio per adattarlo alla rotazione
     if (is_screen_portrait & use_screen_rotation) {
         int temp = aspect_w;
         aspect_w = aspect_h;
         aspect_h = temp;
     }
-    
+
 	double sysaspect = 1.0 * aspect_w / aspect_h;
 	dst_x = 0;
 	dst_y = 0;
@@ -3181,8 +3285,8 @@ SDL_Rect video_refresh_callback_resize_custom(int use_screen_rotation, int aspec
 		dst_x = (GAME_WIDTH - dst_w) / 2;
 	}
 	else {
-		dst_h = (int)_dst_h;		
-		dst_y = (GAME_HEIGHT - dst_h) / 2;	
+		dst_h = (int)_dst_h;
+		dst_y = (GAME_HEIGHT - dst_h) / 2;
 	}
 	retvalue.x = dst_x;
 	retvalue.y = dst_y;
@@ -3199,43 +3303,43 @@ void video_refresh_callback_resize(void) {
 	LOG_info(" VideoResize IN %d %d %d ABS:%d\n", renderer.src_surface->w, renderer.src_surface->h, renderer.src_surface->pitch, now);fflush(stdout);
 	SDL_Rect targetarea = {0,0,GAME_WIDTH,GAME_HEIGHT};
 	switch(screen_scaling) {
-		case SCALE_ASPECT: { 
+		case SCALE_ASPECT: {
 							targetarea = video_refresh_callback_resize_custom(0,renderer.src_surface->w, renderer.src_surface->h);
 							resizemode = 'A';
 							break;
 							};
-		case SCALE_EXTENDED: { 
+		case SCALE_EXTENDED: {
 							targetarea = video_refresh_callback_resize_extended();
 							resizemode = 'E';
 							break;
 							};
-		case SCALE_NATIVE: { 
+		case SCALE_NATIVE: {
 							targetarea = video_refresh_callback_resize_native();
 							resizemode = 'N';
 							break;
 							};
-		case SCALE_FULLSCREEN: { 
+		case SCALE_FULLSCREEN: {
 								LOG_info("RESIZE FULLSCREEN\n");fflush(stdout);
 								resizemode = 'F';
 								//targetarea = video_refresh_callback_resize_fullscreen(data);
 								break;
 							};
-		case SCALE_4_3: 	{ 
+		case SCALE_4_3: 	{
 							targetarea = video_refresh_callback_resize_custom(1,4,3);
 							resizemode = '4';
 							break;
 							};
-		case SCALE_3_2: 	{ 
+		case SCALE_3_2: 	{
 							targetarea = video_refresh_callback_resize_custom(1,3,2);
 							resizemode = '3';
 							break;
 							};
-		default: { 
+		default: {
 					LOG_info("RESIZE FULLSCREEN UNDEF\n");fflush(stdout);
 					resizemode = 'F';
 								//targetarea = video_refresh_callback_resize_fullscreen(data);
 					break;
-				}	
+				}
 	}
 	renderer.scale=1.0 * targetarea.w / (double)renderer.src_surface->w;
 	renderer.aspect=1.0 * targetarea.w / (double)targetarea.h;
@@ -3245,14 +3349,14 @@ void video_refresh_callback_resize(void) {
 	renderer.dst_w = targetarea.w;
 	renderer.dst_h = targetarea.h;
 	renderer.dst_x = targetarea.x;
-	renderer.dst_y = targetarea.y;	
-	renderer.dst_p = renderer.dst_w * FIXED_DEPTH;	
+	renderer.dst_y = targetarea.y;
+	renderer.dst_p = renderer.dst_w * FIXED_DEPTH;
 	renderer.resize = 0;
 	if (renderer.screenscaling != screen_scaling) {
 		renderer.resize = 1;
 		renderer.screenscaling = screen_scaling;
-	} 
-	
+	}
+
 	LOG_info("VideoResize OUT %d %d %d %d TOOK %dms ABS:%d\n", renderer.dst_w , renderer.dst_h, renderer.dst_x , renderer.dst_y ,  SDL_GetTicks()-now, SDL_GetTicks());fflush(stdout);
 }
 
@@ -3297,8 +3401,8 @@ static void video_refresh_callback_main(const void *data, unsigned width, unsign
 	// but 10 hurts PS...
 	// TODO: 10 was based on rg35xx, probably different results on other supported platforms
 	if (fast_forward && SDL_GetTicks()-last_flip_time<17) return;
-	
-	// FFVII menus 
+
+	// FFVII menus
 	// 16: 30/200
 	// 15: 30/180
 	// 14: 45/180
@@ -3307,7 +3411,7 @@ static void video_refresh_callback_main(const void *data, unsigned width, unsign
 	//  8: 60/210 (with optimize text off)
 	// you can squeeze more out of every console by turning prevent tearing off
 	// eg. PS@10 60/240
-	
+
 	//fps_ticks += 1;
 	//LOG_info("%05d: fps_ticks incremented!\n", fps_ticks);fflush(stdout);
 	//if (downsample) pitch /= 2; // everything expects 16 but we're downsampling from 32
@@ -3315,7 +3419,7 @@ static void video_refresh_callback_main(const void *data, unsigned width, unsign
 	renderer.src = (void*)data;
 	struct timeval now, now1, now2, now3, now4, now5, now6;
 //	gettimeofday(&now,NULL);
-	
+
 	//ok here I have renderer.src that points to the frame data to display, it is in RGB565 format
 	//quite sure it is the right moment to rotate it, before calling the selected scaler.
 	//video_refresh_callback_rotate((renderer.rotate + PLAT_getScreenRotation()) & 3, renderer.src, width, height, pitch);
@@ -3323,7 +3427,7 @@ static void video_refresh_callback_main(const void *data, unsigned width, unsign
 //	gettimeofday(&now1,NULL);
 	if (renderer.dst_p==0 || renderer.resize ==1) {
 		video_refresh_callback_resize();
-		GFX_clearAll();	
+		GFX_clearAll();
 	}
 //	gettimeofday(&now2,NULL);
 	GFX_blitRenderer(&renderer);
@@ -3348,7 +3452,7 @@ static void video_refresh_callback_main(const void *data, unsigned width, unsign
 		if ((_now - sec_start2 ) >=1000) {
 			sec_start2 = _now;
 			getCPUusage(cpuload);
-		}	
+		}
 		blitBitmapText(cpuload,2,-2,screengame, renderer.dst_x, renderer.dst_y, renderer.dst_w,renderer.dst_h);
 
 		sprintf(debug_text, "%s %ic", effect_str,renderer.rotategame*90);
@@ -3399,14 +3503,14 @@ static void video_refresh_callback(const void *data, unsigned width, unsigned he
 	}
 //	LOG_info("Video_refresh_callback A\n");fflush(stdout);
 	if (!backbuffer.pixels) {
-		//LOG_info("backbuffer.pixels not yet ready\n");fflush(stdout);	
+		//LOG_info("backbuffer.pixels not yet ready\n");fflush(stdout);
 		return;
 	}
     if (waiting_for_thread_stop == 1){
 		return;
 	}
 //	if (backbuffer.size != pitch * height) {
-//		realloc(backbuffer.pixels, pitch * height);	
+//		realloc(backbuffer.pixels, pitch * height);
 //	}
 
 	uint16_t *output = backbuffer.pixels;
@@ -3421,16 +3525,16 @@ static void video_refresh_callback(const void *data, unsigned width, unsigned he
 
 	if (downsample == 1) {
 		// from 8888 to 565
-		pitch /= 2;	
+		pitch /= 2;
 		// using pixman_composite allows to save up to 3msec per frame (pixman requires 2.7msec@720x720, while cycle above takes 5.8msecs)
 		//pixman_composite_src_8888_0565_asm_neon(pitch/2, height, output, pitch/2, (uint32_t *)data, pitch/2);
 		neon_convert_8888_to_565(pitch/2, height, output, pitch/2, (uint32_t *)data, pitch/2);
-	} 
+	}
 
 	if (downsample == 2) {
 		//from 1555 to 565
 	//	uint32_t counter = pitch*height/2;
-	//	const uint16_t *input16 = (uint16_t *)data;		
+	//	const uint16_t *input16 = (uint16_t *)data;
 	//	while (counter--) {
 	//		uint16_t pixel = *input16++;
 	//		uint16_t r = (pixel & 0x7C00) << 1;  // da bit 10-14 → bit 11-15
@@ -3448,14 +3552,14 @@ static void video_refresh_callback(const void *data, unsigned width, unsigned he
 	backbuffer.pitch = pitch;
 	backbuffer.size = pitch * height;
 	//LOG_info("Video_refresh_callback MID\n");fflush(stdout);
-	if (thread_video) {		
+	if (thread_video) {
 		pthread_mutex_lock(&flip_mx);
 		fps2_ticks++;
 		pthread_mutex_unlock(&flip_mx);
-		
+
 		pthread_mutex_lock(&core_mx);
 		rendering = 1;
-		pthread_cond_signal(&core_rq);		
+		pthread_cond_signal(&core_rq);
 		pthread_mutex_unlock(&core_mx);
 		//PLAT_vsync(0);
 		if (firstframe) {
@@ -3467,18 +3571,18 @@ static void video_refresh_callback(const void *data, unsigned width, unsigned he
 	else {
 		fps2_ticks++;
 		rendering = 1;
-		video_refresh_callback_main(backbuffer.pixels,width,height,pitch);	
+		video_refresh_callback_main(backbuffer.pixels,width,height,pitch);
 	}
 	//uint32_t cur = SDL_GetTicks() - last_callback_time;
 	//if ( cur < 16) SDL_Delay(16 - cur);
 	//LOG_info("Video_refresh_callback OUT: waitforthread:%i thread_video:%i config_done = %i %ix%i_%i took:%lums ABS %lu tmptime=%d\n",waitforthread,thread_video,config_load_done,width,height,pitch, SDL_GetTicks()-callback_time, callback_time,cur);fflush(stdout);
-	
+
 
 //	LOG_info("videorefreshcallback took %dmsec elapsed %dmsec\n", SDL_GetTicks() - callback_time, callback_time - last_callback_time);fflush(stdout);
 	last_callback_time = callback_time;
 }
 ///////////////////////////////
-//array to store the audio timing profile, each second is 60frames, so I'll record the first 10 minutes of every game 
+//array to store the audio timing profile, each second is 60frames, so I'll record the first 10 minutes of every game
 // each record contains 2 values, the first is the entry time in msec, the second is the exit time in msec
 
 // NOTE: sound must be disabled for fast forward to work...
@@ -3491,7 +3595,7 @@ static void audio_sample_callback(int16_t left, int16_t right) {
 	frame.left = left;
 	frame.right = right;
 #ifdef M21
-	if (!GetVolume()) {frame.left = 0; frame.right = 0; } 
+	if (!GetVolume()) {frame.left = 0; frame.right = 0; }
 #endif
 	if (use_nofix) {
 		SND_batchSamplesNoFix(&frame, 1);
@@ -3508,7 +3612,7 @@ struct timeval tv;
 static uint64_t last_audio_time = 0;
 static uint64_t microsvalue = 0;
 static uint32_t frame_period_usecs = 0;
-static size_t audio_sample_batch_callback(const int16_t *data, size_t frames) { 
+static size_t audio_sample_batch_callback(const int16_t *data, size_t frames) {
 	if (fast_forward) return frames;
 	if (waiting_for_thread_stop){
 		return frames;
@@ -3523,7 +3627,7 @@ static size_t audio_sample_batch_callback(const int16_t *data, size_t frames) {
 //	storage_audio_timing[_x][3] = frames;
 	int retvalue;
 	SND_Frame *tmpdata = (SND_Frame *)data;
-#ifdef M21	
+#ifdef M21
 	if (!GetVolume()) { tmpdata = (SND_Frame*)mutedaudiodata; }
 #endif
 
@@ -3544,7 +3648,7 @@ if (use_nofix) {
 //	if (last_audio_time == 0) last_audio_time = microsvalue;
 	//LOG_info("audio_sample_batch_callback %jd/%jd/%i usec\n",(intmax_t)last_audio_time,microsvalue,frame_period_usecs);fflush(stdout);
 
-//	while ((microsvalue - last_audio_time) < frame_period_usecs) 
+//	while ((microsvalue - last_audio_time) < frame_period_usecs)
 //		{
 //			gettimeofday(&tv,NULL);
 //			microsvalue = 1000000 * tv.tv_sec + tv.tv_usec;
@@ -3558,20 +3662,20 @@ if (use_nofix) {
 	return retvalue;
 };
 
-//store the array to a file at exit of the game to avoid interference 
+//store the array to a file at exit of the game to avoid interference
 /*void save_storage_audio_timing(void) {
 
 	LOG_info("save_storage_audio_timing writing to file START _x = %i\n",_x);
 	int i = 0;
 	FILE* file = fopen( SDCARD_PATH "/storage_audio_timing.txt", "w");
 	for (i = 1; i < _x; i++) {
-		fprintf(file, "%05d VideoFrame IN = %d Cycle = %dmsec AudioFrames%d: TimeIn=%dmsec TimeOut=%dmsec Cycle = %d\n", 
-			i, 
-			storage_audio_timing[i][2], 
-			storage_audio_timing[i][2] - storage_audio_timing[i-1][2], 
+		fprintf(file, "%05d VideoFrame IN = %d Cycle = %dmsec AudioFrames%d: TimeIn=%dmsec TimeOut=%dmsec Cycle = %d\n",
+			i,
+			storage_audio_timing[i][2],
+			storage_audio_timing[i][2] - storage_audio_timing[i-1][2],
 			storage_audio_timing[i][3],
-			storage_audio_timing[i][0], 
-			storage_audio_timing[i][1], 
+			storage_audio_timing[i][0],
+			storage_audio_timing[i][1],
 			storage_audio_timing[i][0] - storage_audio_timing[i-1][0]
 		);
 	}
@@ -3590,9 +3694,9 @@ void Core_getName(char* in_name, char* out_name) {
 void Core_open(const char* core_path, const char* tag_name) {
 	LOG_info("Core_open\n");
 	core.handle = dlopen(core_path, RTLD_LAZY);
-	
+
 	if (!core.handle) LOG_error("%s\n", dlerror());
-	
+
 	core.init = dlsym(core.handle, "retro_init");
 	core.deinit = dlsym(core.handle, "retro_deinit");
 	core.get_system_info = dlsym(core.handle, "retro_get_system_info");
@@ -3615,10 +3719,10 @@ void Core_open(const char* core_path, const char* tag_name) {
 	void (*set_environment_callback)(retro_environment_t);
 	set_environment_callback = dlsym(core.handle, "retro_set_environment");
 	set_environment_callback(environment_callback);
-	
+
 	struct retro_system_info info = {};
 	core.get_system_info(&info);
-	
+
 	Core_getName((char*)core_path, (char*)core.name);
 	if (strcmp(core.name, "gambatte") == 0) {
 		//detected core gambatte, it needs a workaround to enable can_dupe otherwise don't start.
@@ -3631,18 +3735,18 @@ void Core_open(const char* core_path, const char* tag_name) {
 	sprintf((char*)core.version, "%s (%s)", info.library_name, info.library_version);
 	strcpy((char*)core.tag, tag_name);
 	strcpy((char*)core.extensions, info.valid_extensions);
-	
+
 	core.need_fullpath = info.need_fullpath;
-	
+
 	LOG_info("core: %s version: %s tag: %s (valid_extensions: %s need_fullpath: %i)\n", core.name, core.version, core.tag, info.valid_extensions, info.need_fullpath);
-	
+
 	sprintf((char*)core.config_dir, USERDATA_PATH "/%s-%s", core.tag, core.name);
 	//sprintf((char*)core.states_dir, SHARED_USERDATA_PATH "/%s-%s", core.tag, core.name);
 	sprintf((char*)core.states_dir, MYSAVESTATE_PATH "/%s/States", core.tag);
 	sprintf((char*)core.saves_dir, SDCARD_PATH "/Saves/%s", core.tag);
 	sprintf((char*)core.bios_dir, SDCARD_PATH "/Bios/%s", core.tag);
 	sprintf((char*)core.cheats_dir, SDCARD_PATH "/Cheats/%s", core.tag);
-	
+
 	char cmd[512];
 	sprintf(cmd, "mkdir -p \"%s\"; mkdir -p \"%s\"", core.config_dir, core.states_dir);
 	system(cmd);
@@ -3672,26 +3776,26 @@ void Core_init(void) {
 	LOG_info("Core_init\n");
 
 	core.init();
-	
+
 	//moved here the callback setup to improve compatibility with some future cores (i.e. mesen needs that)
 	void (*set_video_refresh_callback)(retro_video_refresh_t);
 	void (*set_audio_sample_callback)(retro_audio_sample_t);
 	void (*set_audio_sample_batch_callback)(retro_audio_sample_batch_t);
 	void (*set_input_poll_callback)(retro_input_poll_t);
 	void (*set_input_state_callback)(retro_input_state_t);
-	
+
 	set_video_refresh_callback = dlsym(core.handle, "retro_set_video_refresh");
 	set_audio_sample_callback = dlsym(core.handle, "retro_set_audio_sample");
 	set_audio_sample_batch_callback = dlsym(core.handle, "retro_set_audio_sample_batch");
 	set_input_poll_callback = dlsym(core.handle, "retro_set_input_poll");
 	set_input_state_callback = dlsym(core.handle, "retro_set_input_state");
-	
+
 	set_video_refresh_callback(video_refresh_callback);
 	set_audio_sample_callback(audio_sample_callback);
 	set_audio_sample_batch_callback(audio_sample_batch_callback);
 	set_input_poll_callback(input_poll_callback);
 	set_input_state_callback(input_state_callback);
-	
+
 	core.initialized = 1;
 	LOG_info("Core_init done\n");fflush(stdout);
 }
@@ -3718,7 +3822,7 @@ void Core_load(void) {
 	game_info.path = game.tmp_path[0]?game.tmp_path:game.path;
 	game_info.data = game.data;
 	game_info.size = game.size;
-	
+
 	loadgamesuccess = core.load_game(&game_info);
 
 	if (Cheats_load()){
@@ -3727,7 +3831,7 @@ void Core_load(void) {
 
 	SRAM_read();
 	RTC_read();
-	
+
 	// NOTE: must be called after core.load_game!
 	struct retro_system_av_info av_info = {};
 	core.get_system_av_info(&av_info);
@@ -3745,7 +3849,7 @@ void Core_load(void) {
 	core.aspect_ratio = a;
 	coreloaded = 1;
 	if (Founddiskcontrol==1) {
-		NumDiscsDetected = disk_control_ext.get_num_images();	
+		NumDiscsDetected = disk_control_ext.get_num_images();
 		LOG_info("\n\nRETRO_ENVIRONMENT_SET_DISK_CONTROL_EXT_INTERFACE - NumDiscs = %i\n", NumDiscsDetected);
 	} else if (Founddiskcontrol==2) {
 		NumDiscsDetected = disk_control.get_num_images();
@@ -3828,7 +3932,7 @@ static struct {
 	.total_discs = 0,
 	.save_exists = 0,
 	.preview_exists = 0,
-	
+
 	.items = {
 		[ITEM_CONT] = "Continue",
 		[ITEM_SAVE] = "Save",
@@ -3848,7 +3952,7 @@ int makeBoxart(SDL_Surface *image, char *filename) {
 	getParentFolderName(game.path,tmp);
 	sprintf(dirpath, ROMS_PATH "/%s/Imgs",tmp);
 	LOG_info("#####boxart2 name###### = %s\n", dirpath);
-    sprintf(cmd1,"mkdir -p \"%s\"",dirpath); 
+    sprintf(cmd1,"mkdir -p \"%s\"",dirpath);
 	system(cmd1);
 	cmd1[0]='\0';
     SDL_Surface *mysurface = SDL_CreateRGBSurface(0,boxartdata.sW,boxartdata.sH,16,0,0,0,0);
@@ -3858,32 +3962,32 @@ int makeBoxart(SDL_Surface *image, char *filename) {
         return -1;
     }
 	double xfactr, yfactr;
-    double myaspect = 1.0 * image->w / image->h; 
+    double myaspect = 1.0 * image->w / image->h;
     int localX = boxartdata.bX;
-    int localY = boxartdata.bY; 
+    int localY = boxartdata.bY;
     switch (boxartdata.aspect) {
-        case ASPECT: 
+        case ASPECT:
             LOG_info("ASPECT = ASPECT\n");
             //first calculate othe original aspectratio
             if (myaspect > 1.0){
                 //the W is bigger than H
                     //resize to fit W
                     xfactr = 1.0 * boxartdata.bW / image->w;
-                    yfactr = xfactr; 
+                    yfactr = xfactr;
                     localY += (boxartdata.bH - (image->h * yfactr))/2;
             } else { //image is higher than wider
                     //resize to fit H
                     yfactr = 1.0 * boxartdata.bH / image->h;
-                    xfactr = yfactr; 
+                    xfactr = yfactr;
                     localX += (boxartdata.bW - (image->w * xfactr))/2;
             }
             break;
-        case NATIVE: 
+        case NATIVE:
             LOG_info("ASPECT = NATIVE\n");
             if ((boxartdata.bW > image->w) && (boxartdata.bH > image->h)){
                 //image is smaller than target box
                 xfactr = 1.0;
-                yfactr = 1.0; 
+                yfactr = 1.0;
                 //change x y to place the image in the center of the target box
                 localX += (boxartdata.bW - image->w)/2;
                 localY += (boxartdata.bH - image->h)/2;
@@ -3893,21 +3997,21 @@ int makeBoxart(SDL_Surface *image, char *filename) {
                     //the W is bigger than H
                         //resize to fit W
                         xfactr = 1.0 * boxartdata.sW / image->w;
-                        yfactr = xfactr; 
+                        yfactr = xfactr;
                         localY += (boxartdata.bH - (image->h * yfactr))/2;
                 } else { //image is higher than wider
                         //resize to fit H
                         yfactr = 1.0 * boxartdata.bH / image->h;
-                        xfactr = yfactr; 
+                        xfactr = yfactr;
                         localX += (boxartdata.bW - (image->w * xfactr))/2;
                 }
-            }            
+            }
             break;
-        case FULL: 
+        case FULL:
             //fill target box by shrinking/streching the original image
             LOG_info("ASPECT = FULL\n");
             xfactr = 1.0 * boxartdata.bW / image->w;
-            yfactr = 1.0 * boxartdata.bH / image->h; 
+            yfactr = 1.0 * boxartdata.bH / image->h;
             break;
     }
     SDL_Surface *scaled_myimg = zoomSurface(image, xfactr , yfactr, 0);
@@ -3917,8 +4021,8 @@ int makeBoxart(SDL_Surface *image, char *filename) {
         SDL_Surface *blackgradient = IMG_Load(boxartdata.gradient);
         if (blackgradient == NULL){
             LOG_info("Failed loading Gradient: %s\n", IMG_GetError());
-            return -1;  
-        } 
+            return -1;
+        }
 		LOG_info("Applying Gradient %s\n",boxartdata.gradient);
 #if defined (USE_SDL2)
 		SDL_SetSurfaceBlendMode(blackgradient,SDL_BLENDMODE_BLEND);
@@ -3927,7 +4031,7 @@ int makeBoxart(SDL_Surface *image, char *filename) {
 #endif
 		if (SDL_BlitSurface(blackgradient,NULL,mysurface,NULL) == 0) {
 			LOG_info("Applying Gradient Success\n");
-		}   			
+		}
 		SDL_FreeSurface(blackgradient);
     }
 
@@ -3937,10 +4041,10 @@ int makeBoxart(SDL_Surface *image, char *filename) {
 	IMG_SavePNG_RW(mysurface, out, 1);
 #else
 	SDL_SaveBMP_RW(mysurface, out, 1);
-	bmp2png(menu.bmp_path);	
+	bmp2png(menu.bmp_path);
 #endif
-    //SDL_BlitSurface(mysurface,NULL,screen,NULL); 
-    SDL_FreeSurface(scaled_myimg); 
+    //SDL_BlitSurface(mysurface,NULL,screen,NULL);
+    SDL_FreeSurface(scaled_myimg);
     //SDL_FreeSurface(unscaled_myimg);
     SDL_FreeSurface(mysurface);
     return 1;
@@ -3953,14 +4057,14 @@ void Menu_init(void) {
 	menu.overlay = SDL_CreateRGBSurface(SDL_SWSURFACE,DEVICE_WIDTH,DEVICE_HEIGHT,FIXED_DEPTH,RGBA_MASK_AUTO);
 	SDLX_SetAlpha(menu.overlay, SDL_SRCALPHA, 0x80);
 	SDL_FillRect(menu.overlay, NULL, 0);
-	
+
 	char emu_name[256];
 	getEmuName(game.path, emu_name);
 	sprintf(menu.minui_dir, SHARED_USERDATA_PATH "/.minui/%s", emu_name);
 	mkdir(menu.minui_dir, 0755);
 
 	sprintf(menu.slot_path, "%s/%s.txt", menu.minui_dir, game.fullname);
-	
+
 	if (simple_mode) menu.items[ITEM_OPTS] = "Reset";
 
 	if (coreDiscManaged){  //the core has detected multidisc pbp game
@@ -4061,9 +4165,9 @@ static int Menu_message(char* message, char** pairs) {
 		PAD_poll();
 
 		if (PAD_justPressed(BTN_A) || PAD_justPressed(BTN_B)) break;
-		
+
 		PWR_update(&dirty, NULL, Menu_beforeSleep, Menu_afterSleep);
-		
+
 		if (dirty) {
 			GFX_clear(screen);
 			GFX_blitMessage(font.medium, message, screen, &(SDL_Rect){0,SCALE1((PADDING - (PADDING*fancy_mode))),screen->w,screen->h-SCALE1(PILL_SIZE+(PADDING - (PADDING*fancy_mode)))});
@@ -4134,7 +4238,7 @@ static int OptionFrontend_openMenu(MenuList* list, int i) {
 			item->value = option->value;
 		}
 	}
-	
+
 	Menu_options(&OptionFrontend_menu);
 	return MENU_CALLBACK_NOP;
 }
@@ -4142,8 +4246,8 @@ static int OptionFrontend_openMenu(MenuList* list, int i) {
 static int OptionEmulator_optionChanged(MenuList* list, int i) {
 	MenuItem* item = &list->items[i];
 	Option* option = OptionList_getOption(&config.core, item->key);
-	LOG_info("%s (%s) changed from `%s` (%s) to `%s` (%s)\n", item->name, item->key, 
-		item->values[option->value], option->values[option->value], 
+	LOG_info("%s (%s) changed from `%s` (%s) to `%s` (%s)\n", item->name, item->key,
+		item->values[option->value], option->values[option->value],
 		item->values[item->value], option->values[item->value]
 	);
 	OptionList_setOptionRawValue(&config.core, item->key, item->value);
@@ -4179,7 +4283,7 @@ static int OptionEmulator_openMenu(MenuList* list, int i) {
 				j += 1;
 			}
 		}
-		
+
 		OptionEmulator_menu.items = calloc(config.core.enabled_count+1, sizeof(MenuItem));
 		for (int j=0; j<config.core.enabled_count; j++) {
 			Option* option = config.core.enabled_options[j];
@@ -4199,14 +4303,14 @@ static int OptionEmulator_openMenu(MenuList* list, int i) {
 			item->value = option->value;
 		}
 	}
-	
+
 	if (OptionEmulator_menu.items[0].name) { // TODO: why doesn't this just use (enabled_)count?
 		Menu_options(&OptionEmulator_menu);
 	}
 	else {
 		Menu_message("This core has no options.", (char*[]){ "B","BACK", NULL });
 	}
-	
+
 	return MENU_CALLBACK_NOP;
 }
 
@@ -4216,14 +4320,14 @@ int OptionControls_bind(MenuList* list, int i) {
 		// LOG_info("changed gamepad_type\n");
 		return MENU_CALLBACK_NOP;
 	}
-	
-	ButtonMapping* button = &config.controls[item->id];	
-	
+
+	ButtonMapping* button = &config.controls[item->id];
+
 	int bound = 0;
 	while (!bound) {
 		GFX_startFrame();
 		PAD_poll();
-		
+
 		// NOTE: off by one because of the initial NONE value
 		for (int id=0; id<=LOCAL_BUTTON_COUNT; id++) {
 			if (PAD_justPressed(1 << (id-1))) {
@@ -4247,7 +4351,7 @@ int OptionControls_bind(MenuList* list, int i) {
 static int OptionControls_unbind(MenuList* list, int i) {
 	MenuItem* item = &list->items[i];
 	if (item->values!=button_labels) return MENU_CALLBACK_NOP;
-	
+
 	ButtonMapping* button = &config.controls[item->id];
 	button->local = -1;
 	button->mod = 0;
@@ -4272,7 +4376,7 @@ static int OptionControls_mapABXYChanged(MenuList* list, int i) {
 
 	return MENU_CALLBACK_NOP;
 }
- 
+
  static int OptionControls_mapLStickChanged(MenuList* list, int i) {
 	MenuItem* item = &list->items[i];
 	if (item->values!=onoff_labels) return MENU_CALLBACK_NOP;
@@ -4304,7 +4408,7 @@ static int OptionControls_openMenu(MenuList* list, int i) {
 		OptionControls_menu.totalnum = RETRO_BUTTON_COUNT+2+has_custom_controllers;
 		OptionControls_menu.items = calloc(OptionControls_menu.totalnum, sizeof(MenuItem));
 		int k = 0;
-		
+
 		MenuItem* item2 = &OptionControls_menu.items[k++];
 		item2->name = "MapABXYtoRightStick";
 		item2->desc = "Map ABXY buttons to right stick.";
@@ -4318,7 +4422,7 @@ static int OptionControls_openMenu(MenuList* list, int i) {
 		item3->value = config.controller_map_lstick_to_dpad;
 		item3->values = onoff_labels;
 		item3->on_change = OptionControls_mapLStickChanged;
-	
+
 		if (has_custom_controllers) {
 			MenuItem* item = &OptionControls_menu.items[k++];
 			item->name = "Controller";
@@ -4327,11 +4431,11 @@ static int OptionControls_openMenu(MenuList* list, int i) {
 			item->values = gamepad_labels;
 			item->on_change = OptionControls_optionChanged;
 		}
-		
+
 		for (int j=0; config.controls[j].name; j++) {
 			ButtonMapping* button = &config.controls[j];
 			if (button->ignore) continue;
-						
+
 			MenuItem* item = &OptionControls_menu.items[k++];
 			item->id = j;
 			item->name = button->name;
@@ -4351,24 +4455,24 @@ static int OptionControls_openMenu(MenuList* list, int i) {
 		// update values
 		//LOG_info("OptionControls_openMenu Refresh\n");
 		int k = 0;
-		
+
 		MenuItem* item2 = &OptionControls_menu.items[k++];
 		item2->value = config.controller_map_abxy_to_rstick;
 
 		MenuItem* item3 = &OptionControls_menu.items[k++];
 		item3->value = config.controller_map_lstick_to_dpad;
 		pad.map_leftstick_to_dpad = config.controller_map_lstick_to_dpad;
-		
+
 
 		if (has_custom_controllers == 1) {
 			MenuItem* item = &OptionControls_menu.items[k++];
 			item->value = gamepad_type;
 		}
-		
+
 		for (int j=0; config.controls[j].name; j++) {
 			ButtonMapping* button = &config.controls[j];
 			if (button->ignore) continue;
-			
+
 			MenuItem* item = &OptionControls_menu.items[k++];
 			item->value = button->local + 1;
 			if (button->mod) item->value += LOCAL_BUTTON_COUNT;
@@ -4385,7 +4489,7 @@ static int OptionShortcuts_bind(MenuList* list, int i) {
 	while (!bound) {
 		GFX_startFrame();
 		PAD_poll();
-		
+
 		// NOTE: off by one because of the initial NONE value
 		for (int id=0; id<=LOCAL_BUTTON_COUNT; id++) {
 			if (PAD_justPressed(1 << (id-1))) {
@@ -4415,7 +4519,7 @@ static int OptionShortcuts_unbind(MenuList* list, int i) {
 }
 static MenuList OptionShortcuts_menu = {
 	.type = MENU_INPUT,
-	.desc = "Press A to set and X to clear." 
+	.desc = "Press A to set and X to clear."
 		"\nSupports single button and MENU+button." // TODO: not supported on nano because POWER doubles as MENU
 	,
 	.on_confirm = OptionShortcuts_bind,
@@ -4587,14 +4691,14 @@ static int OptionCheats_openMenu(MenuList* list, int i) {
 
 		Menu_messageWithFont(cheats_path, (char*[]){ "B","BACK", NULL }, font.small);
 	}
-	
+
 	return MENU_CALLBACK_NOP;
 }
 
 #if defined (USE_SDL2)
-#define SDLSTRINGVERSION "SDL2" 
+#define SDLSTRINGVERSION "SDL2"
 #else
-#define SDLSTRINGVERSION "SDL1" 
+#define SDLSTRINGVERSION "SDL1"
 #endif
 
 static MenuList options_menu = {
@@ -4604,7 +4708,7 @@ static MenuList options_menu = {
 		{"Emulator",.on_confirm=OptionEmulator_openMenu},
 		{"Cheats",.on_confirm=OptionCheats_openMenu},
 		{"Controls",.on_confirm=OptionControls_openMenu},
-		{"Shortcuts",.on_confirm=OptionShortcuts_openMenu}, 
+		{"Shortcuts",.on_confirm=OptionShortcuts_openMenu},
 		{"Save Changes",.on_confirm=OptionSaveChanges_openMenu},
 		{NULL},
 		{NULL},
@@ -4626,7 +4730,7 @@ static int Menu_options(MenuList* list) {
 	int show_options = 1;
 	int show_settings = 0;
 	int await_input = 0;
-	
+
 	// dependent on option list offset top and bottom, eg. the gray triangles
 	int max_visible_options = (screen->h - ((SCALE1(PADDING + PILL_SIZE) * 2) + SCALE1(BUTTON_SIZE))) / SCALE1(BUTTON_SIZE); // 7 for 480, 10 for 720
 
@@ -4644,15 +4748,15 @@ static int Menu_options(MenuList* list) {
 	int start = 0;
 	int end = MIN(count,max_visible_options);
 	int visible_rows = end;
-	
+
 	OptionSaveChanges_updateDesc();
-	
+
 	int defer_menu = false;
 	while (show_options) {
 		if (await_input) {
 			defer_menu = true;
 			list->on_confirm(list, selected);
-			
+
 			selected += 1;
 			if (selected>=count) {
 				selected = 0;
@@ -4666,10 +4770,10 @@ static int Menu_options(MenuList* list) {
 			dirty = 1;
 			await_input = false;
 		}
-		
+
 		GFX_startFrame();
 		PAD_poll();
-		
+
 		if (PAD_justRepeated(BTN_UP) || PAD_justPressed(BTN_UP)) {
 			selected -= 1;
 			if (selected<0) {
@@ -4706,24 +4810,24 @@ static int Menu_options(MenuList* list) {
 						for (j=0; item->values[j]; j++);
 						item->value = j - 1;
 					}
-				
+
 						if (item->on_change) item->on_change(list, selected);
 						else if (list->on_change) list->on_change(list, selected);
-				
+
 					dirty = 1;
 				}
 				else if (PAD_justRepeated(BTN_RIGHT)|| PAD_justPressed(BTN_RIGHT)) {
 					if (item->values[item->value+1]) item->value += 1;
 					else item->value = 0;
-				
+
 				if (item->on_change) item->on_change(list, selected);
 				else if (list->on_change) list->on_change(list, selected);
-				
+
 				dirty = 1;
 				}
 			}
 		}
-		
+
 		// uint32_t now = SDL_GetTicks();
 		if (PAD_justPressed(BTN_B)) { // || PAD_tappedMenu(now)
 			show_options = 0;
@@ -4733,7 +4837,7 @@ static int Menu_options(MenuList* list) {
 			int result = MENU_CALLBACK_NOP;
 			if (item->on_confirm) result = item->on_confirm(list, selected); // item-specific action, eg. Save for all games
 			else if (item->submenu) result = Menu_options(item->submenu); // drill down, eg. main options menu
-			// TODO: is there a way to defer on_confirm for MENU_INPUT so we can clear the currently set value to indicate it is awaiting input? 
+			// TODO: is there a way to defer on_confirm for MENU_INPUT so we can clear the currently set value to indicate it is awaiting input?
 			// eg. set a flag to call on_confirm at the beginning of the next frame?
 			else if (list->on_confirm) {
 				if (item->values==button_labels) await_input = 1; // button binding
@@ -4761,10 +4865,10 @@ static int Menu_options(MenuList* list) {
 			if (PAD_justPressed(BTN_X)) {
 				MenuItem* item = &items[selected];
 				item->value = 0;
-				
+
 				if (item->on_change) item->on_change(list, selected);
 				else if (list->on_change) list->on_change(list, selected);
-				
+
 				// copied from PAD_justRepeated(BTN_DOWN) above
 				selected += 1;
 				if (selected>=count) {
@@ -4779,15 +4883,15 @@ static int Menu_options(MenuList* list) {
 				dirty = 1;
 			}
 		}
-		
+
 		if (!defer_menu) PWR_update(&dirty, &show_settings, Menu_beforeSleep, Menu_afterSleep);
-		
+
 		if (defer_menu && (PAD_justReleased(BTN_MENU) || PAD_justReleasedShort(BTN_MENU))) defer_menu = false;
-		
+
 		if (dirty) {
 			GFX_clear(screen);
 			GFX_blitHardwareGroup(screen, show_settings, fancy_mode);
-			
+
 			char* desc = NULL;
 			SDL_Surface* text;
 
@@ -4805,7 +4909,7 @@ static int Menu_options(MenuList* list) {
 					// cache the result
 					list->max_width = mw = MIN(mw, screen->w - SCALE1((PADDING - (PADDING*fancy_mode)) *2));
 				}
-				
+
 				int ox = (screen->w - mw) / 2;
 				int oy = SCALE1(PADDING  + PILL_SIZE);
 				int selected_row = selected - start;
@@ -4819,7 +4923,7 @@ static int Menu_options(MenuList* list) {
 						int w = 0;
 						TTF_SizeUTF8(font.small, item->name, &w, NULL);
 						w += SCALE1(OPTION_PADDING*2);
-						
+
 						GFX_blitPill(ASSET_BUTTON, screen, &(SDL_Rect){
 							ox,
 							oy+SCALE1(j*BUTTON_SIZE),
@@ -4827,7 +4931,7 @@ static int Menu_options(MenuList* list) {
 							SCALE1(BUTTON_SIZE)
 						});
 						text_color = COLOR_BLACK;
-						
+
 						if (item->desc) desc = item->desc;
 					}
 					text = TTF_RenderUTF8_Blended(font.small, item->name, text_color);
@@ -4846,7 +4950,7 @@ static int Menu_options(MenuList* list) {
 				int ox,oy;
 				ox = oy = SCALE1((PADDING - (PADDING*fancy_mode)));
 				oy += SCALE1(PILL_SIZE);
-				
+
 				int selected_row = selected - start;
 				for (int i=start,j=0; i<end; i++,j++) {
 					MenuItem* item = &items[i];
@@ -4861,7 +4965,7 @@ static int Menu_options(MenuList* list) {
 							SCALE1(BUTTON_SIZE)
 						});
 					}
-					
+
 					if (item->value>=0) {
 						text = TTF_RenderUTF8_Blended(font.tiny, item->values[item->value], COLOR_WHITE); // always white
 						SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){
@@ -4870,7 +4974,7 @@ static int Menu_options(MenuList* list) {
 						});
 						SDL_FreeSurface(text);
 					}
-					
+
 					// TODO: blit a black pill on unselected rows (to cover longer item->values?) or truncate longer item->values?
 					if (j==selected_row) {
 						// white pill
@@ -4884,7 +4988,7 @@ static int Menu_options(MenuList* list) {
 							SCALE1(BUTTON_SIZE)
 						});
 						text_color = COLOR_BLACK;
-						
+
 						if (item->desc) desc = item->desc;
 					}
 					text = TTF_RenderUTF8_Blended(font.small, item->name, text_color);
@@ -4906,7 +5010,7 @@ static int Menu_options(MenuList* list) {
 						int lw = 0;
 						int rw = 0;
 						TTF_SizeUTF8(font.small, item->name, &lw, NULL);
-						
+
 						// every value list in an input table is the same
 						// so only calculate rw for the first item...
 						if (!mrw || type!=MENU_INPUT) {
@@ -4926,7 +5030,7 @@ static int Menu_options(MenuList* list) {
 					// cache the result
 					list->max_width = mw = MIN(mw, screen->w - SCALE1((PADDING - (PADDING*fancy_mode)) *2));
 				}
-				
+
 				int ox = (screen->w - mw) / 2;
 				int oy = SCALE1((PADDING - (PADDING*fancy_mode)) + PILL_SIZE);
 				int selected_row = selected - start;
@@ -4942,7 +5046,7 @@ static int Menu_options(MenuList* list) {
 							mw,
 							SCALE1(BUTTON_SIZE)
 						});
-						
+
 						// white pill
 						int w = 0;
 						TTF_SizeUTF8(font.small, item->name, &w, NULL);
@@ -4954,7 +5058,7 @@ static int Menu_options(MenuList* list) {
 							SCALE1(BUTTON_SIZE)
 						});
 						text_color = COLOR_BLACK;
-						
+
 						if (item->desc) desc = item->desc;
 					}
 					text = TTF_RenderUTF8_Blended(font.small, item->name, text_color);
@@ -4963,7 +5067,7 @@ static int Menu_options(MenuList* list) {
 						oy+SCALE1((j*BUTTON_SIZE)+1)
 					});
 					SDL_FreeSurface(text);
-					
+
 					if (await_input && j==selected_row) {
 						// buh
 					}
@@ -4977,7 +5081,7 @@ static int Menu_options(MenuList* list) {
 					}
 				}
 			}
-			
+
 			if (count>max_visible_options) {
 				#define SCROLL_WIDTH 24
 				#define SCROLL_HEIGHT 4
@@ -4986,9 +5090,9 @@ static int Menu_options(MenuList* list) {
 				if (start>0) GFX_blitAsset(ASSET_SCROLL_UP,   NULL, screen, &(SDL_Rect){ox, SCALE1((PADDING - (PADDING*fancy_mode))) + oy});
 				if (end<count) GFX_blitAsset(ASSET_SCROLL_DOWN, NULL, screen, &(SDL_Rect){ox, screen->h - SCALE1((PADDING - (PADDING*fancy_mode)) + PILL_SIZE + BUTTON_SIZE) + oy});
 			}
-			
+
 			if (!desc && list->desc) desc = list->desc;
-			
+
 			if (desc) {
 				int w,h;
 				GFX_sizeText(font.tiny, desc, SCALE1(12), &w,&h);
@@ -4998,17 +5102,17 @@ static int Menu_options(MenuList* list) {
 					w,h
 				});
 			}
-			
+
 			GFX_flip(screen);
 			GFX_pan();
 			dirty = 0;
 		}
 		else GFX_sync();
 	}
-	
+
 	GFX_clearAll();
 	GFX_flip(screen);
-	
+
 	return 0;
 }
 
@@ -5016,7 +5120,7 @@ static int Menu_options(MenuList* list) {
 static void Menu_initState(void) {
 	if (exists(menu.slot_path)) menu.slot = getInt(menu.slot_path);
 	if (menu.slot==0) menu.slot = 1;
-	
+
 	menu.save_exists = 0;
 	menu.preview_exists = 0;
 }
@@ -5038,12 +5142,12 @@ static void Menu_updateState(void) {
 	}
 	char *tmpname = game.fullname;
 	if (game.m3u_path[0]) {
-		getDisplayNameParens(game.m3u_path, tmpname);	
-	} 
+		getDisplayNameParens(game.m3u_path, tmpname);
+	}
 	//sprintf(menu.bmp_path, "%s/%s.state%spng", menu.minui_dir, game.basename, slotstr);
 	sprintf(menu.bmp_path, "%s/%s.state%spng", core.states_dir, game.fullname, slotstr);
 	//sprintf(menu.txt_path, "%s/%s%stxt", menu.minui_dir, game.fullname, slotstr);
-	
+
 	menu.save_exists = exists(save_path);
 	menu.preview_exists = menu.save_exists && exists(menu.bmp_path);
 
@@ -5054,7 +5158,7 @@ static void Menu_saveState(void) {
 	// LOG_info("Menu_saveState\n");
 
 	Menu_updateState();
-	
+
 	//SDL_Surface* bitmap = SDL_CreateRGBSurfaceFrom(renderer.src_surface->pixels, renderer.src_surface->w, renderer.src_surface->h, FIXED_DEPTH, renderer.src_surface->pitch, RGBA_MASK_565);
 	SDL_Surface *tmpbitmap = SDL_CreateRGBSurfaceFrom(renderer.src_surface->pixels, renderer.src_surface->w, renderer.src_surface->h, FIXED_DEPTH, renderer.src_surface->pitch, RGBA_MASK_565);
 	SDL_Surface *bitmap = rotozoomSurface(tmpbitmap, (4-PLAT_getScreenRotation(1))*90.0, 1.0, SMOOTHING_ON);
@@ -5064,11 +5168,11 @@ static void Menu_saveState(void) {
 	IMG_SavePNG_RW(bitmap, out, 1);
 #else
 	SDL_SaveBMP_RW(bitmap, out, 1);
-	bmp2png(menu.bmp_path);	
+	bmp2png(menu.bmp_path);
 #endif
-	
+
 	// LOG_info("%s %ix%i\n", menu.bmp_path, bitmap->w,bitmap->h);
-	
+
 	SDL_FreeSurface(bitmap);
 	state_slot = menu.slot;
 	putInt(menu.slot_path, menu.slot);
@@ -5078,7 +5182,7 @@ static void Menu_loadState(void) {
 	// LOG_info("Menu_loadState\n");
 
 	Menu_updateState();
-	
+
 	//now useless as state loads right disk on its own?
 
 	state_slot = menu.slot;
@@ -5118,7 +5222,7 @@ static int getAlias(char* path, char* alias) {
 	char* file_name = strrchr(path,'/');
 	if (file_name) file_name += 1;
 	LOG_info("file_name: %s\n", file_name);
-	
+
 	if (exists(map_path)) {
 		FILE* file = fopen(map_path, "r");
 		if (file) {
@@ -5127,7 +5231,7 @@ static int getAlias(char* path, char* alias) {
 				normalizeNewline(line);
 				trimTrailingNewlines(line);
 				if (strlen(line)==0) continue; // skip empty lines
-			
+
 				tmp = strchr(line,'\t');
 				if (tmp) {
 					tmp[0] = '\0';
@@ -5148,13 +5252,14 @@ static int getAlias(char* path, char* alias) {
 static void Menu_loop(void) {
 
 	LOG_info("Entering Menu render= %i - rendering= %i\n",render,rendering);fflush(stdout);
-	if (thread_video==1) {	
+	if (thread_video==1) {
 		wait_For_Thread();
 	}
 	if (firstmenu) PLAT_clearAll();
 	firstmenu = 0;
-	// 1. Perform the rotation first
-	SDL_Surface* rotated = rotozoomSurface(screengame, (4 - gamerotate) * 90.0, 1.0, 1);
+	// 1. Perform the rotation first (angle is always a multiple of 90, so
+	// smoothing is unneeded and only costs extra RAM/CPU at menu-entry)
+	SDL_Surface* rotated = rotozoomSurface(screengame, (4 - gamerotate) * 90.0, 1.0, SMOOTHING_OFF);
 
 	// 2. Calculate scale factors based on the target device dimensions
 	double zoomX = (double)DEVICE_WIDTH / rotated->w;
@@ -5167,15 +5272,15 @@ static void Menu_loop(void) {
 	SDL_FreeSurface(rotated);
 
 	// 5. Create backing surface and copy it normally
-	SDL_Surface* backing = SDL_CreateRGBSurface(SDL_SWSURFACE, DEVICE_WIDTH, DEVICE_HEIGHT, FIXED_DEPTH, RGBA_MASK_565); 
+	SDL_Surface* backing = SDL_CreateRGBSurface(SDL_SWSURFACE, DEVICE_WIDTH, DEVICE_HEIGHT, FIXED_DEPTH, RGBA_MASK_565);
 	SDL_BlitSurface(menu.bitmap, NULL, backing, NULL);
 	int restore_w = screen->w;
 	int restore_h = screen->h;
 	int restore_p = screen->pitch;
-	
+
 	LOG_info("Menu_loop begin call GFX_resize %i %i %i\n",DEVICE_WIDTH,DEVICE_HEIGHT,DEVICE_PITCH);fflush(stdout);
 	screen = GFX_resize(DEVICE_WIDTH,DEVICE_HEIGHT,DEVICE_PITCH);
-	
+
 	SRAM_write();
 	RTC_write();
 	PWR_warn(0);
@@ -5183,24 +5288,24 @@ static void Menu_loop(void) {
 	PWR_setCPUSpeed(CPU_SPEED_MENU); // set Hz directly
 	GFX_setVsync(VSYNC_STRICT);
 	GFX_setEffect(EFFECT_NONE);
-	
+
 	int rumble_strength = VIB_getStrength();
 	VIB_setStrength(0,0,0);
 	VIB_setStrength(0,1,0);
-	
+
 	PWR_enableAutosleep();
 	PAD_reset();
-	
+
 	// path and string things
 	char* tmp;
 	char rom_name[256]; // without extension or cruft
 	char rom_name2[256]; // without extension or cruft
-	
+
 	if (getAlias(game.path, rom_name2)){
 		// remove trailing parens (round and square)
 		char *tmp;
 		while ((tmp=strrchr(rom_name2, '('))!=NULL || (tmp=strrchr(rom_name2, '['))!=NULL) {
-			if (tmp==rom_name2) 
+			if (tmp==rom_name2)
 				break;
 			tmp[0] = '\0';
 			tmp = rom_name2;
@@ -5214,28 +5319,28 @@ static void Menu_loop(void) {
 	if (menu.total_discs) {
 		if (coreDiscManaged) {
 			menu.disc = disk_control_ext.get_image_index();
-		}		
+		}
 		rom_disc = menu.disc;
 		sprintf(disc_name, "Disc %i", menu.disc+1);
 	}
-		
+
 	int selected = 0; // resets every launch
 	Menu_initState();
-	
+
 	int status = STATUS_CONT; // TODO: no longer used?
 	int show_setting = 0;
 	int dirty = 1;
 	int ignore_menu = 0;
 	int menu_start = 0;
-	
+
 	SDL_Surface* preview = SDL_CreateRGBSurface(SDL_SWSURFACE,DEVICE_WIDTH/2,DEVICE_HEIGHT/2,FIXED_DEPTH,RGBA_MASK_565); // TODO: retain until changed?
-	
+
 	while (show_menu) {
 		GFX_startFrame();
 		uint32_t now = SDL_GetTicks();
 
 		PAD_poll();
-		
+
 		if (PAD_justPressed(BTN_UP)) {
 			selected -= 1;
 			if (selected<0) selected += MENU_ITEM_COUNT;
@@ -5272,13 +5377,13 @@ static void Menu_loop(void) {
 				dirty = 1;
 			}
 		}
-		
+
 		if (dirty && (selected==ITEM_SAVE || selected==ITEM_LOAD)) {
 			Menu_updateState();
 		}
-		
+
 		if (PAD_justPressed(BTN_Y)) {
-			Menu_makeboxart();		
+			Menu_makeboxart();
 		}
 
 		if (PAD_justPressed(BTN_B) || (BTN_WAKE!=BTN_MENU && PAD_tappedMenu(now))) {
@@ -5302,7 +5407,7 @@ static void Menu_loop(void) {
 					}
 					show_menu = 0;
 				break;
-				
+
 				case ITEM_SAVE: {
 					Menu_saveState();
 					status = STATUS_SAVE;
@@ -5353,17 +5458,17 @@ static void Menu_loop(void) {
 		}
 
 		PWR_update(&dirty, &show_setting, Menu_beforeSleep, Menu_afterSleep);
-		
+
 		if (dirty) {
 			GFX_clear(screen);
-			
+
 			SDL_BlitSurface(backing, NULL, screen, NULL);
 			SDL_BlitSurface(menu.overlay, NULL, screen, NULL);
 
 			int ox, oy;
 			int ow = GFX_blitHardwareGroup(screen, show_setting, fancy_mode);
 			int max_width = screen->w - SCALE1((PADDING - (PADDING*fancy_mode)) * 2) - ow;
-			
+
 			char display_name[256];
 			int text_width = GFX_truncateText(font.large, rom_name, display_name, max_width, SCALE1(BUTTON_PADDING*2));
 			max_width = MIN(max_width, text_width);
@@ -5391,18 +5496,18 @@ static void Menu_loop(void) {
 			} else {
 				GFX_blitButtonGroup((char*[]){ BTN_SLEEP==BTN_POWER?"PWR":"MENU",pwractionstr, "Y","BOXART", NULL }, 0, screen, 0, fancy_mode);
 			}
-			
+
 			GFX_blitButtonGroup((char*[]){ "B","BACK", "A","OKAY", NULL }, 1, screen, 1, fancy_mode);
-			
+
 			// list
 			oy = (((DEVICE_HEIGHT / FIXED_SCALE) - ((PADDING - (PADDING*fancy_mode))* 2)) - (MENU_ITEM_COUNT * PILL_SIZE)) / 2;
 			for (int i=0; i<MENU_ITEM_COUNT; i++) {
 				char* item = menu.items[i];
 				SDL_Color text_color = COLOR_WHITE;
-				
+
 				if (i==selected) {
 					// disc change
-					if (menu.total_discs>1 && i==ITEM_CONT) {				
+					if (menu.total_discs>1 && i==ITEM_CONT) {
 						GFX_blitPill(ASSET_DARK_GRAY_PILL, screen, &(SDL_Rect){
 							SCALE1((PADDING - (PADDING*fancy_mode))),
 							SCALE1(oy + (PADDING - (PADDING*fancy_mode))),
@@ -5416,10 +5521,10 @@ static void Menu_loop(void) {
 						});
 						SDL_FreeSurface(text);
 					}
-					
+
 					TTF_SizeUTF8(font.large, item, &ow, NULL);
 					ow += SCALE1(BUTTON_PADDING*2);
-					
+
 					// pill
 					GFX_blitPill(ASSET_WHITE_PILL, screen, &(SDL_Rect){
 						SCALE1((PADDING - (PADDING*fancy_mode))),
@@ -5438,7 +5543,7 @@ static void Menu_loop(void) {
 					});
 					SDL_FreeSurface(text);
 				}
-				
+
 				// text
 				text = TTF_RenderUTF8_Blended(font.large, item, text_color);
 				SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){
@@ -5448,7 +5553,7 @@ static void Menu_loop(void) {
 				SDL_FreeSurface(text);
 			}
 
-			// my slot preview enlarged to 384x288 for better see 
+			// my slot preview enlarged to 384x288 for better see
 			if (selected==ITEM_SAVE || selected==ITEM_LOAD) {
 				#define WINDOW_RADIUS 4 // TODO: this logic belongs in blitRect?
 				#define PAGINATION_HEIGHT 6
@@ -5459,12 +5564,12 @@ static void Menu_loop(void) {
 				int ph = hh + SCALE1(WINDOW_RADIUS*2 + PAGINATION_HEIGHT);
 				ox = DEVICE_WIDTH - pw;
 				oy = (DEVICE_HEIGHT - ph) / 2;
-							
+
 				// window
 				GFX_blitRect(ASSET_STATE_BG, screen, &(SDL_Rect){ox,oy,pw,ph});
 				ox += SCALE1(WINDOW_RADIUS);
 				oy += SCALE1(WINDOW_RADIUS);
-				
+
 				if (menu.preview_exists) { // has save, has preview
 					// lotta memory churn here
 					SDL_Surface* bmp = IMG_Load(menu.bmp_path);
@@ -5473,12 +5578,12 @@ static void Menu_loop(void) {
 						SDL_FillRect(screen, &preview_rect, 0);
 						GFX_blitMessage(font.large, "No Preview", screen, &preview_rect);
 					} else {
-						SDL_Surface* preview = zoomSurface(bmp, (1.0 * hw / bmp->w) , (1.0 * hh / bmp->h), 0);					
-						SDL_BlitSurface(preview, NULL, screen, &(SDL_Rect){ox,oy}); 
-						if (bmp) SDL_FreeSurface(bmp);   
-						if (preview) SDL_FreeSurface(preview);					
+						SDL_Surface* preview = zoomSurface(bmp, (1.0 * hw / bmp->w) , (1.0 * hh / bmp->h), 0);
+						SDL_BlitSurface(preview, NULL, screen, &(SDL_Rect){ox,oy});
+						if (bmp) SDL_FreeSurface(bmp);
+						if (preview) SDL_FreeSurface(preview);
 					}
-					
+
 				}
 				else {
 					SDL_Rect preview_rect = {ox,oy,hw,hh};
@@ -5486,7 +5591,7 @@ static void Menu_loop(void) {
 					if (menu.save_exists) GFX_blitMessage(font.large, "No Preview", screen, &preview_rect);
 					else GFX_blitMessage(font.large, "Empty Slot", screen, &preview_rect);
 				}
-				
+
 				// pagination
 				ox += (pw-SCALE1(16*MENU_SLOT_COUNT))/2;
 				oy += hh+SCALE1(WINDOW_RADIUS)-SCALE1(PAGINATION_HEIGHT / 2 - 1);
@@ -5495,11 +5600,11 @@ static void Menu_loop(void) {
 					else GFX_blitAsset(ASSET_DOT, NULL, screen, &(SDL_Rect){ox+SCALE1((i-1)*16)+4,oy+SCALE1(2)});
 				}
 				if (menu.slot == 0){
-					ox -= SCALE1(16);		
+					ox -= SCALE1(16);
 					GFX_blitAsset(ASSET_RED_PAGE, NULL, screen, &(SDL_Rect){ox,oy});
 				}
 			}
-	
+
 			GFX_flip(screen);
 			GFX_pan();
 			dirty = 0;
@@ -5508,7 +5613,7 @@ static void Menu_loop(void) {
 	}
 
 	SDL_FreeSurface(preview);
-	
+
 	PAD_reset();
 	PWR_warn(1);
 	GFX_clearAll();
@@ -5519,11 +5624,11 @@ static void Menu_loop(void) {
 		screen = GFX_resize(restore_w,restore_h,restore_p);
 		GFX_setEffect(screen_effect);
 		GFX_clear(screen);
-		
+
 
 		setOverclock(overclock); // restore overclock value
 		if (rumble_strength) VIB_setStrength(0,0,rumble_strength);
-		
+
 		GFX_setVsync(prevent_tearing);
 		if (!HAS_POWER_BUTTON) PWR_disableSleep();
 
@@ -5537,12 +5642,12 @@ static void Menu_loop(void) {
 			pthread_mutex_unlock(&flip_mx);
 			pthread_mutex_lock(&core_mx);
 			should_run_core = 1;
-			pthread_mutex_unlock(&core_mx);		
+			pthread_mutex_unlock(&core_mx);
 		} else {
 			video_refresh_callback(renderer.src, renderer.true_w, renderer.true_h, renderer.src_p);
 		}
 	}
-	
+
 	SDL_FreeSurface(menu.bitmap);
 	menu.bitmap = NULL;
 	SDL_FreeSurface(backing);
@@ -5562,7 +5667,7 @@ static void trackFPS(void) {
 
 		sec_start = now;
 		fps_ticks = 0;
-		fps2_ticks = 0;		
+		fps2_ticks = 0;
 		// LOG_info("fps: %f cpu: %f\n", fps_double, cpu_double);
 	}
 }
@@ -5576,7 +5681,7 @@ static void limitFF(void) {
 		last_max_speed = max_ff_speed;
 		ff_frame_time = 1000000 / (core.fps * (max_ff_speed + 1));
 	}
-	
+
 	uint64_t now = getMicroseconds();
 	if (fast_forward && max_ff_speed) {
 		if (last_time == 0) last_time = now;
@@ -5621,14 +5726,14 @@ static void* flipThread(void *arg) {
 		if (run) {
 			trackFPS();
 			pthread_mutex_lock(&flip_mx);
-			pthread_cond_wait(&flip_rq, &flip_mx);	
+			pthread_cond_wait(&flip_rq, &flip_mx);
 			video_refresh_callback_main(backbuffer.pixels,backbuffer.w,backbuffer.h,backbuffer.pitch);
 #endif
 			render = 0;
 			pthread_mutex_unlock(&flip_mx);
 		} else { //should never happen
 			sleep(0);
-		}	
+		}
 	}
 	pthread_exit(NULL);
 }
@@ -5689,7 +5794,7 @@ int main(int argc , char* argv[]) {
 		CPU_SET(1, &coret);
 	}
 	char core_path[MAX_PATH];
-	char rom_path[MAX_PATH]; 
+	char rom_path[MAX_PATH];
 	char tag_name[MAX_PATH];
 	int resume_slot;
 
@@ -5697,7 +5802,7 @@ int main(int argc , char* argv[]) {
 	int has_pending_opt_change = 0;
 
 	//backbuffer.pixels = (uint16_t*)malloc(MAX_WIDTH*MAX_HEIGHT*sizeof(uint16_t));
-	
+
 	backbuffer.w = MAX_WIDTH;
 	backbuffer.h = MAX_HEIGHT;
 	backbuffer.pitch = backbuffer.w*sizeof(uint16_t);
@@ -5708,7 +5813,7 @@ int main(int argc , char* argv[]) {
 
 	//improving performances of debug hud
 	// Superficie a 32-bit fissa: garantisce la compatibilità con rotozoom su SDL 1.2 e SDL2
-	SDL_Surface *temp = SDL_CreateRGBSurface(SDL_SWSURFACE, GAME_WIDTH, GAME_HEIGHT, 32, 
+	SDL_Surface *temp = SDL_CreateRGBSurface(SDL_SWSURFACE, GAME_WIDTH, GAME_HEIGHT, 32,
 #if SDL_BYTEORDER == SDL_BIG_ENDIAN
 		0xff000000, 0x00ff0000, 0x0000ff00, 0x000000ff
 #else
@@ -5717,7 +5822,7 @@ int main(int argc , char* argv[]) {
 	);
 
 	// Sfondo nero opaco (Alpha impostato a 255/massimo, così non è trasparente)
-	
+
 	black_pixel = SDL_MapRGBA(temp->format, 0, 0, 0, 255);
 	white_pixel = SDL_MapRGBA(temp->format, 255, 255, 255, 255);
 	SDL_FreeSurface(temp);
@@ -5732,17 +5837,17 @@ int main(int argc , char* argv[]) {
 	PLAT_getAudioOutput();
 #endif
 	fancy_mode = exists(FANCY_MODE_PATH);
-	
+
 	strcpy(core_path, argv[1]);
 	strcpy(rom_path, argv[2]);
 	resume_slot=strtol(argv[3],NULL,10);
 	getEmuName(rom_path, tag_name);
-	
+
 	LOG_info("rom_path: %s\n", rom_path);
 
 #ifdef M21
 	preInitSettings();
-#endif	
+#endif
 	if (exists(PWR_SLEEP_PATH)){
 		sprintf(pwractionstr,"SLP");
 	} else {
@@ -5755,7 +5860,7 @@ int main(int argc , char* argv[]) {
 	setOverclock(overclock); // default to normal
 	PAD_init();
 
-	
+
 	VIB_init();
 	PWR_init();
 	if (!HAS_POWER_BUTTON) PWR_disableSleep();
@@ -5763,62 +5868,62 @@ int main(int argc , char* argv[]) {
 
 	// Overrides_init();
 
-	
+
 	Core_open(core_path, tag_name);
 	Game_open(rom_path);
 	if (!game.is_open) goto finish;
-	
+
 	simple_mode = exists(SIMPLE_MODE_PATH);
-	
+
 	// restore options
 	Config_load();
 	Config_init();
 	Config_readOptions(); // cores with boot logo option (eg. gb) need to load options early
 	setOverclock(overclock);
 	GFX_setVsync(prevent_tearing);
-	
+
 	Core_init();
-	
+
 	// TODO: find a better place to do this
 	// mixing static and loaded data is messy
 	// why not move to Core_init()?
 	// ah, because it's defined before options_menu...
 	options_menu.items[1].desc = (char*)core.version;
-	
+
 	Core_load();
 	Input_init(NULL);
 	Config_readOptions(); // but others load and report options later (eg. nes)
 	Config_readControls(); // restore controls (after the core has reported its defaults)
 	Config_free();
-		
+
 	SND_init(core.sample_rate, core.fps);
 	InitSettings(); // after we initialize audio
 	Menu_init();
 	State_resume(resume_slot);
 	resume_slot=-1;
 	Menu_initState(); // make ready for state shortcuts
-	
+
 	gamerotate = PLAT_getScreenRotation(1);
-	
+
 	// Initialize ALL mutexes and conditions BEFORE creating threads
 	core_mx = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
 	core_rq = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
 	flip_mx = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
 	flip_rq = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
-	
+
 	// Create threads
 	pthread_create(&core_pt, NULL, &coreThread, NULL);
 	pthread_create(&flip_pt, NULL, &flipThread, NULL);
-	
+
 	// Small delay to ensure threads are ready
 	usleep(1000);
-	
+
 #ifndef __arm__
 	// On ARM64, set affinity after threads are created
 	pthread_setaffinity_np(core_pt, sizeof(cpu_set_t), &coret);
 	pthread_setaffinity_np(flip_pt, sizeof(cpu_set_t), &flipt);
 #endif
-	
+
 	PWR_warn(1);
 	PWR_disableAutosleep();
 
@@ -5868,22 +5973,22 @@ int main(int argc , char* argv[]) {
 #ifndef M210
 			pthread_cond_signal(&flip_rq);
 #endif
-			pthread_mutex_unlock(&flip_mx);	
-//#ifndef MIYOOMINI	//don't know why this makes Miyoomini cry :-)				
+			pthread_mutex_unlock(&flip_mx);
+//#ifndef MIYOOMINI	//don't know why this makes Miyoomini cry :-)
 //			while (waiting_for_thread_stop) {
 //				asm("nop");
 //			//		usleep(0);
 //			}
 //#endif
 		}
-		
-		if (show_menu) { 
+
+		if (show_menu) {
 			Menu_loop();
 			has_pending_opt_change = config.core.changed;
 			resetFPSCounter();
 			chooseSyncRef();
 		}
-		
+
 		//trackFPS();
 		if (toggle_thread) {
 			toggle_thread = 0;
@@ -5907,7 +6012,7 @@ int main(int argc , char* argv[]) {
 				pthread_mutex_unlock(&core_mx);
 				pthread_mutex_lock(&flip_mx);
 				should_run_flip = 0;
-				pthread_mutex_unlock(&flip_mx);	
+				pthread_mutex_unlock(&flip_mx);
 
 				// force a vsync immediately before loop
 				// for better frame pacing?
@@ -5920,19 +6025,19 @@ int main(int argc , char* argv[]) {
 			config_load_done = 1;
 		}
 	}
-	
+
 	Menu_quit();
 	QuitSettings();
-	
+
 finish:
 
 	Game_close();
 	Core_unload();
 	Core_quit();
 	Core_close();
-	
+
 	Config_quit();
-	
+
 	MSG_quit();
 	PWR_quit();
 	VIB_quit();
@@ -5944,6 +6049,6 @@ finish:
 	free(renderer.src_surface->pixels);
 	free(renderer.src_surface);
 	free(mutedaudiodata);
-	
+
 	return EXIT_SUCCESS;
 }

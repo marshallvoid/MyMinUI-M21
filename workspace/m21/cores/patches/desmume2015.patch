@@ -1,0 +1,45 @@
+diff --git a/desmume/Makefile.libretro b/desmume/Makefile.libretro
+index de055be..0f935eb 100644
+--- a/desmume/Makefile.libretro
++++ b/desmume/Makefile.libretro
+@@ -218,6 +218,22 @@ else ifeq ($(platform), emscripten)
+    TARGET := $(TARGET_NAME)_libretro_$(platform).bc
+    STATIC_LINKING = 1
+
++# sjgam m21 (allwinner h133, dual cortex-a7, armv7ve neon hardfloat, glibc chroot)
++else ifeq ($(platform), m21)
++   TARGET := $(TARGET_NAME)_libretro.so
++   CC = $(CROSS_COMPILE)gcc
++   CXX = $(CROSS_COMPILE)g++
++   AR = $(CROSS_COMPILE)ar
++   fpic := -fPIC
++   SHARED := -shared -Wl,--no-undefined -Wl,--version-script=$(CORE_DIR)/libretro/link.T
++   LIBS := -lpthread -lm
++   DESMUME_JIT_ARM = 1
++   DESMUME_JIT = 0
++   HAVE_NEON = 1
++   CXXFLAGS += -DUSE_POSIX_MEMALIGN -D__RETRO_ARM__ -DARM -DMAPPED_JIT_FUNCS -Wno-narrowing
++   CFLAGS += $(MYARCH) -fomit-frame-pointer -ffast-math
++   CXXFLAGS += $(MYARCH) -fomit-frame-pointer -ffast-math
++
+ # Windows MSVC 2010 x64
+ else ifeq ($(platform), windows_msvc2010_x64)
+ 	CC  = cl.exe
+diff --git a/desmume/src/libretro/libretro.cpp b/desmume/src/libretro/libretro.cpp
+index 47c9ec8..656ab0d 100644
+--- a/desmume/src/libretro/libretro.cpp
++++ b/desmume/src/libretro/libretro.cpp
+@@ -119,3 +119,6 @@ static void DrawPointerLineSmall(uint16_t* aOut, uint32_t aPitchInPix, int facto
+ static void DrawPointer(uint16_t* aOut, uint32_t aPitchInPix)
+ {
++   // MinArch uses unused libretro L3 as its M22 stylus-mode signal.
++   if (!input_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L3))
++      return;
+    if(FramesWithPointer-- < 0)
+@@ -136,3 +139,6 @@ static void DrawPointer(uint16_t* aOut, uint32_t aPitchInPix)
+ static void DrawPointerHybrid(uint16_t* aOut, uint32_t aPitchInPix, bool large)
+ {
++   // Keep the virtual stylus cursor hidden outside MinArch's L1 mouse-mode.
++   if (!input_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L3))
++      return;
+    if(FramesWithPointer-- < 0)
