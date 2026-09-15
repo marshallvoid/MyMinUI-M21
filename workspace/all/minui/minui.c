@@ -337,6 +337,8 @@ static char kb_text[256] = "";
 static int kb_col = 0;
 static int kb_row = 0;
 static int kb_upper = 0;
+static SDL_Surface* search_query_surface = NULL;
+static char search_cached_query[256+16] = "";
 
 typedef struct SearchResult {
 	char* path; // full SDCARD path of the rom
@@ -402,6 +404,7 @@ static int getBoxartPath(Entry* entry, char* out);
 static SDL_Surface* BoxartCache_get(char* path);
 static SDL_Surface* loadBoxart(const char* path);
 static void BoxartCache_put(char* path, SDL_Surface* surface);
+static void SearchResult_boxartPath(SearchResult* hit, char* out);
 static void MenuOpt_boxartPath(int i, char* out);
 static void MenuOpt_preloadAt(int i);
 
@@ -580,43 +583,60 @@ static void Search_close(void) {
 static void Search_drawKeyboard(SDL_Surface* screen, int sx, int qy, int sw) {
 	static const char* kb_rows_lower[3] = {"qwertyuiop","asdfghjkl_","zxcvbnm123"};
 	static const char* kb_rows_upper[3] = {"QWERTYUIOP","ASDFGHJKL_","ZXCVBNM123"};
-	char* actions[3] = {"SPACE","DEL", kb_upper ? "abc" : "ABC"};
+	static SDL_Surface* key_white[66];
+	static SDL_Surface* key_black[66];
+	static SDL_Surface* action_white[4];
+	static SDL_Surface* action_black[4];
+	static SDL_Surface* hint_surface = NULL;
+	static char cached_hint[64] = "";
+	static const char* actions[3] = {"SPACE", "DEL", NULL};
 	int key_w = sw/10;
 	int key_h = SCALE1(PILL_SIZE);
 	int ky = qy + SCALE1(PILL_SIZE);
 	for (int r=0; r<3; r++) {
 		const char* row = kb_upper ? kb_rows_upper[r] : kb_rows_lower[r];
 		for (int c=0; c<10; c++) {
-			char key[2] = {row[c], '\0'};
+			int key_index = r*10+c+(kb_upper ? 33 : 0);
 			int cur = (show_search_menu==1 && r==kb_row && c==kb_col);
-			SDL_Color tc = cur ? COLOR_BLACK : COLOR_WHITE;
 			if (cur) {
 				GFX_blitPill(ASSET_WHITE_PILL, screen, &(SDL_Rect){sx+c*key_w,ky+r*key_h,key_w,key_h});
 			}
-			SDL_Surface* text = TTF_RenderUTF8_Blended(font.large, key, tc);
+			if (!key_white[key_index]) {
+				char key[2] = {row[c], '\0'};
+				key_white[key_index] = TTF_RenderUTF8_Blended(font.large, key, COLOR_WHITE);
+				key_black[key_index] = TTF_RenderUTF8_Blended(font.large, key, COLOR_BLACK);
+			}
+			SDL_Surface* text = cur ? key_black[key_index] : key_white[key_index];
 			SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){sx+c*key_w+(key_w-text->w)/2,ky+r*key_h+(key_h-text->h)/2});
-			SDL_FreeSurface(text);
 		}
 	}
 	int ay = ky + 3*key_h;
 	for (int c=0; c<3; c++) {
 		int aw = sw/3;
 		int cur = (show_search_menu==1 && kb_row==3 && c==kb_col);
-		SDL_Color tc = cur ? COLOR_BLACK : COLOR_WHITE;
+		actions[2] = kb_upper ? "abc" : "ABC";
 		if (cur) {
 			GFX_blitPill(ASSET_WHITE_PILL, screen, &(SDL_Rect){sx+c*aw,ay,aw,key_h});
 		}
-		SDL_Surface* text = TTF_RenderUTF8_Blended(font.large, actions[c], tc);
+		int action_index = c==2 && kb_upper ? 3 : c;
+		if (!action_white[action_index]) {
+			action_white[action_index] = TTF_RenderUTF8_Blended(font.large, actions[c], COLOR_WHITE);
+			action_black[action_index] = TTF_RenderUTF8_Blended(font.large, actions[c], COLOR_BLACK);
+		}
+		SDL_Surface* text = cur ? action_black[action_index] : action_white[action_index];
 		SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){sx+c*aw+(aw-text->w)/2,ay+(key_h-text->h)/2});
-		SDL_FreeSurface(text);
 	}
 	// small live hint of match count
 	int rtotal = search_results ? search_results->count : 0;
 	char hint[64];
 	sprintf(hint, "%d hit%s - START: results", rtotal, rtotal==1?"":"s");
-	SDL_Surface* htext = TTF_RenderUTF8_Blended(font.small, hint, COLOR_GRAY);
+	if (!hint_surface || !exactMatch(cached_hint, hint)) {
+		if (hint_surface) SDL_FreeSurface(hint_surface);
+		strcpy(cached_hint, hint);
+		hint_surface = TTF_RenderUTF8_Blended(font.small, hint, COLOR_GRAY);
+	}
+	SDL_Surface* htext = hint_surface;
 	SDL_BlitSurface(htext, NULL, screen, &(SDL_Rect){sx,ay+key_h+SCALE1(4)});
-	SDL_FreeSurface(htext);
 }
 
 // search UI: options popup (menu 0), full 640px keyboard (menu 1),
@@ -714,10 +734,14 @@ static void Search_draw(SDL_Surface* screen, int show_setting, int fancy) {
 		sprintf(qline, "> %s_", kb_text);
 		char qdisp[256+16];
 		GFX_truncateText(font.large, qline, qdisp, sw, SCALE1(BUTTON_PADDING*2));
-		SDL_Surface* qtext = TTF_RenderUTF8_Blended(font.large, qdisp, COLOR_GOLD);
+		if (!search_query_surface || !exactMatch(search_cached_query, qdisp)) {
+			if (search_query_surface) SDL_FreeSurface(search_query_surface);
+			strcpy(search_cached_query, qdisp);
+			search_query_surface = TTF_RenderUTF8_Blended(font.large, qdisp, COLOR_GOLD);
+		}
+		SDL_Surface* qtext = search_query_surface;
 		int qy = SCALE1(PADDING);
 		SDL_BlitSurface(qtext, &(SDL_Rect){0,0,sw,qtext->h}, screen, &(SDL_Rect){sx,qy});
-		SDL_FreeSurface(qtext);
 
 		if (show_search_menu==2) { // results fill the screen under the query
 			int rtotal = search_results ? search_results->count : 0;
@@ -730,20 +754,12 @@ static void Search_draw(SDL_Surface* screen, int show_setting, int fancy) {
 			// same as the normal browser (fixes "no boxart in search").
 			if (fancy && rtotal>0 && search_selected>=0 && search_selected<rtotal) {
 				SearchResult* sel_hit = search_results->items[search_selected];
+				char sel_boxart[512];
 				char sel_emu[256];
 				char sel_rom[256];
 				getParentFolderName(sel_hit->path, sel_emu);
 				getDisplayNameParens(sel_hit->path, sel_rom);
-				char sel_boxart[512];
-				sel_boxart[0] = '\0';
-				if (sel_hit->type==ENTRY_PAK) {
-					sprintf(sel_boxart, "%s/Imgs/%s.png", sel_hit->path, sel_hit->name);
-					if (!exists(sel_boxart)) sel_boxart[0] = '\0';
-				}
-				else {
-					sprintf(sel_boxart, ROMS_PATH "/%s/Imgs/%s.png", sel_emu, sel_rom);
-					if (!exists(sel_boxart)) sel_boxart[0] = '\0';
-				}
+				SearchResult_boxartPath(sel_hit, sel_boxart);
 				if (sel_boxart[0]) {
 					SDL_Surface* boxart = BoxartCache_get(sel_boxart);
 					if (!boxart) {
@@ -2467,6 +2483,23 @@ static int preload_cursor = 0;
 
 static int getBoxartPath(Entry* entry, char* out); // defined below
 
+static void SearchResult_boxartPath(SearchResult* hit, char* out) {
+	char emu_name[256];
+	char rom_name[256];
+	getParentFolderName(hit->path, emu_name);
+	getDisplayNameParens(hit->path, rom_name);
+	if (hit->type==ENTRY_PAK) {
+		sprintf(out, "%s/Imgs/%s.png", hit->path, hit->name);
+	}
+	else {
+		sprintf(out, ROMS_PATH "/%s/Imgs/%s.png", emu_name, rom_name);
+	}
+	if (exists(out)) return;
+	sprintf(out, SDCARD_PATH "/Imgs/default.png");
+	if (exists(out)) return;
+	out[0] = '\0';
+}
+
 static void boxartLoadEntry(Entry* entry) { // decode + cache one boxart if needed
 	char path[512];
 	if (!getBoxartPath(entry, path)) return; // no boxart for this entry
@@ -2475,19 +2508,9 @@ static void boxartLoadEntry(Entry* entry) { // decode + cache one boxart if need
 	if (surface) BoxartCache_put(path, surface);
 }
 static void boxartLoadSearchResult(SearchResult* hit) { // decode + cache one boxart for a search hit
-	char emu_name[256];
-	char rom_name[256];
-	getParentFolderName(hit->path, emu_name);
-	getDisplayNameParens(hit->path, rom_name);
 	char path[512];
-	if (hit->type==ENTRY_PAK) {
-		sprintf(path, "%s/Imgs/%s.png", hit->path, hit->name);
-		if (!exists(path)) return;
-	}
-	else {
-		sprintf(path, ROMS_PATH "/%s/Imgs/%s.png", emu_name, rom_name);
-		if (!exists(path)) return;
-	}
+	SearchResult_boxartPath(hit, path);
+	if (!path[0]) return;
 	if (BoxartCache_get(path)) return;
 	SDL_Surface* surface = loadBoxart(path);
 	if (surface) BoxartCache_put(path, surface);
@@ -2845,6 +2868,16 @@ int main (int argc, char *argv[]) {
 					}
 					dirty = 1;
 				}
+				else if (PAD_justPressed(BTN_X)) { // delete last character
+					int len = strlen(kb_text);
+					if (len>0) {
+						kb_text[len-1] = '\0';
+						SearchResults_build(kb_text);
+						search_selected = 0;
+						search_start = 0;
+					}
+					dirty = 1;
+				}
 				else if (PAD_justPressed(BTN_L1) || PAD_justRepeated(BTN_L1)) {
 					int len = strlen(kb_text); // DEL on shoulder too
 					if (len>0) {
@@ -3138,7 +3171,7 @@ int main (int argc, char *argv[]) {
 			}*/
 
 			else if (total>0 && PAD_justPressed(BTN_Y)) {
-				if (!selected_modifier){
+				if (!selected_modifier && stack->count==1){
 					Search_open();
 					dirty = 1;
 				}

@@ -26,7 +26,7 @@ if [ "${TMPSTR}NULL" = "NULL" ]; then
 	export NEWDTB=1
 fi
 
-echo 1 > /sys/class/disp/disp/attr/colorbar
+echo 0 > /sys/class/disp/disp/attr/colorbar
 export PATH=$SYSTEM_PATH/bin:$PATH
 export LD_LIBRARY_PATH=$SYSTEM_PATH/lib:$LD_LIBRARY_PATH
 export SDL_NOMOUSE=1

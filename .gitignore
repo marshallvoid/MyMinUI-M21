@@ -56,3 +56,4 @@ toolchains/my282-toolchain/.build
 
 *.bak
 storage/
+tools/

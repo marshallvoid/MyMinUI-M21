@@ -71,7 +71,7 @@ void PLAT_initInput(void) {
 	USER_BTN_START = RAW_START;
 	USER_BTN_VOLUMEUP = RAW_PLUS;
 	USER_BTN_VOLUMEDOWN = RAW_MINUS;
-	USER_BTN_POWER = RAW_POWER;	
+	USER_BTN_POWER = RAW_POWER;
 	PAD_readCustomButtonMapping();
 
 	char path[64];
@@ -120,8 +120,8 @@ static int PWR_Actions = 0;
 static uint32_t PWR_Tick = 0;
 #define PWR_TIMEOUT 2000
 int last_dpad_used[2];
-int selectstartstatus[3] = {0}; 
-int selectstartlaststatus[3] = {0}; 
+int selectstartstatus[3] = {0};
+int selectstartlaststatus[3] = {0};
 
 
 
@@ -147,7 +147,7 @@ void PLAT_pollInput(void) {
 			pad.repeat_at[i] += PAD_REPEAT_INTERVAL;
 		}
 	}
-	
+
 	// the actual poll
 	int input;
 	static struct input_event event;
@@ -165,39 +165,39 @@ void PLAT_pollInput(void) {
 			// TODO: tmp, hardcoded, missing some buttons
 			if (type==EV_KEY) {
 				if (value>1) continue; // ignore repeats
-			
+
 				pressed = value;
 
 				if ((i > 0) || (ism22 == 1)) { //external controllers or is the m22 which doesn't have the menu button
-				//special handling as the sjgam external controller does not provide menu button but only select+start, 
+				//special handling as the sjgam external controller does not provide menu button but only select+start,
 				//let's find a way to simulate menu button when select+start is detected
-					if (code==USER_BTN_START)	{ btn = BTN_START; 		id = BTN_ID_START; pressed ? selectstartstatus[i]++ : selectstartstatus[i]--; } 
+					if (code==USER_BTN_START)	{ btn = BTN_START; 		id = BTN_ID_START; pressed ? selectstartstatus[i]++ : selectstartstatus[i]--; }
 				    if (code==USER_BTN_SELECT)	{ btn = BTN_SELECT; 	id = BTN_ID_SELECT; pressed ? selectstartstatus[i]++ : selectstartstatus[i]--;}
 					if (selectstartstatus[i] == 2) {
 						if (selectstartlaststatus[i] != selectstartstatus[i]) {
 							//LOG_info("SEL+START event detected, generating MENU event stause: %d\n", pressed);fflush(stdout);
-							btn = BTN_MENU;  id = BTN_ID_MENU; 
-							selectstartlaststatus[i]=1; 
+							btn = BTN_MENU;  id = BTN_ID_MENU;
+							selectstartlaststatus[i]=1;
 							pad.is_pressed		&= ~BTN_SELECT; // unset
 							pad.just_repeated	&= ~BTN_SELECT; // unset
 							pad.just_released_short &= ~BTN_SELECT; // unset
 							pad.just_released   &= ~BTN_SELECT; // unset
 							pad.is_pressed		&= ~BTN_START; // unset
-							pad.just_repeated	&= ~BTN_START; // unset	
+							pad.just_repeated	&= ~BTN_START; // unset
 							pad.just_released_short &= ~BTN_START; // unset
 							pad.just_released &= ~BTN_SELECT; // unset
 							if (pressed){
 								PWR_Pressed = 1;
 								PWR_Tick = SDL_GetTicks();
-								PWR_Actions = 0;		
+								PWR_Actions = 0;
 								//LOG_info("BTN_MENU event detected, status: %d , start timer = %d , actions = %d\n", pressed, PWR_Tick, PWR_Actions);fflush(stdout);
-								//printf("pwr pressed\n");				
-							} 						
+								//printf("pwr pressed\n");
+							}
 						}
 					}
 					if ((selectstartstatus[i] == 1) && (selectstartlaststatus[i] == 1)) {
-						btn = BTN_MENU; 	
-						id = BTN_ID_MENU; 
+						btn = BTN_MENU;
+						id = BTN_ID_MENU;
 						selectstartlaststatus[i]=0;
 						if ( (PWR_Pressed) && (!PWR_Actions) && (SDL_GetTicks() - PWR_Tick > PWR_TIMEOUT)) {
 									//pwr button pressed for more than PWR_TIMEOUT ms (3s default)
@@ -211,20 +211,20 @@ void PLAT_pollInput(void) {
 									pad.just_released_short &= ~BTN_SELECT; // unset
 									pad.just_released   &= ~BTN_SELECT; // unset
 									pad.is_pressed		&= ~BTN_START; // unset
-									pad.just_repeated	&= ~BTN_START; // unset	
+									pad.just_repeated	&= ~BTN_START; // unset
 									pad.just_released_short &= ~BTN_START; // unset
 									pad.just_released &= ~BTN_SELECT; // unset
-									PWR_Pressed = 0;	
-									pad.is_pressed		|= btn; // set 
+									PWR_Pressed = 0;
+									pad.is_pressed		|= btn; // set
 				//					LOG_info("BTN_MENU release event detected, status: %d , elapsed timer = %d , actions = %d\n", pressed, SDL_GetTicks() - PWR_Tick, PWR_Actions);fflush(stdout);
-									//printf("pwr released and pwr button event generated\n");			
-								} 
-					}	
-					if (code==USER_BTN_A)		{ btn = BTN_A; 			id = BTN_ID_A; } 
-					if (code==USER_BTN_B)		{ btn = BTN_B; 			id = BTN_ID_B; } 
-				} 
+									//printf("pwr released and pwr button event generated\n");
+								}
+					}
+					if (code==USER_BTN_A)		{ btn = BTN_A; 			id = BTN_ID_A; }
+					if (code==USER_BTN_B)		{ btn = BTN_B; 			id = BTN_ID_B; }
+				}
 				else { //internal controls, standard behavior
-					if 		(code==USER_BTN_START)	{ btn = BTN_START; 		id = BTN_ID_START; } 
+					if 		(code==USER_BTN_START)	{ btn = BTN_START; 		id = BTN_ID_START; }
 				    else if (code==USER_BTN_SELECT)	{ btn = BTN_SELECT; 	id = BTN_ID_SELECT; }
 					else if (code==USER_BTN_A)		{ btn = BTN_A; 			id = BTN_ID_A; }
 					else if (code==USER_BTN_B)		{ btn = BTN_B; 			id = BTN_ID_B; }
@@ -237,24 +237,24 @@ void PLAT_pollInput(void) {
 				else if (code==USER_BTN_RIGHT)	{ btn = BTN_DPAD_RIGHT; id = BTN_ID_DPAD_RIGHT; }
 				else if (code==USER_BTN_X)		{ btn = BTN_X; 			id = BTN_ID_X; }
 				else if (code==USER_BTN_Y)		{ btn = BTN_Y; 			id = BTN_ID_Y; }
-				
-				else if (code==USER_BTN_MENU)	{ 
-							btn = BTN_MENU; 		id = BTN_ID_MENU; 
+
+				else if (code==USER_BTN_MENU)	{
+							btn = BTN_MENU; 		id = BTN_ID_MENU;
 							// hack to generate a pwr button
 							if (pressed){
 								PWR_Pressed = 1;
 								PWR_Tick = SDL_GetTicks();
-								PWR_Actions = 0;		
-								//printf("pwr pressed\n");				
-							} else {						
+								PWR_Actions = 0;
+								//printf("pwr pressed\n");
+							} else {
 								if ( (PWR_Pressed) && (!PWR_Actions) && (SDL_GetTicks() - PWR_Tick > PWR_TIMEOUT)) {
 									//pwr button pressed for more than PWR_TIMEOUT ms (3s default)
 									btn = BTN_POWEROFF; 		id = BTN_ID_POWEROFF;
 									pad.is_pressed		|= btn; // set
-									PWR_Pressed = 0;	
-									//printf("pwr released and pwr button event generated\n");			
-								} 
-							}					
+									PWR_Pressed = 0;
+									//printf("pwr released and pwr button event generated\n");
+								}
+							}
 					}
 				else if (code==USER_BTN_L1)		{ btn = BTN_L1; 		id = BTN_ID_L1; }
 				else if (code==USER_BTN_L2)		{ btn = BTN_L2; 		id = BTN_ID_L2; }
@@ -267,7 +267,7 @@ void PLAT_pollInput(void) {
 				if (code==1) {
 					if (value==0)	{ last_dpad_used[1] = 0; pressed = 1; btn = BTN_DPAD_UP; 	id = BTN_ID_DPAD_UP; }
 					if (value==255)	{ last_dpad_used[1] = 255; pressed = 1; btn = BTN_DPAD_DOWN; 	id = BTN_ID_DPAD_DOWN; }
-					if (value==128)	{ pressed = 0; 
+					if (value==128)	{ pressed = 0;
 									  if (last_dpad_used[1] == 0) { btn = BTN_DPAD_UP; 	id = BTN_ID_DPAD_UP; }
 									  else { btn = BTN_DPAD_DOWN; 	id = BTN_ID_DPAD_DOWN; }
 					}
@@ -275,7 +275,7 @@ void PLAT_pollInput(void) {
 				if (code==0) {
 					if (value==0)	{ last_dpad_used[0] = 0; pressed = 1; btn = BTN_DPAD_LEFT; 	id = BTN_ID_DPAD_LEFT; }
 					if (value==255)	{ last_dpad_used[0] = 255; pressed = 1; btn = BTN_DPAD_RIGHT; id = BTN_ID_DPAD_RIGHT; }
-					if (value==128)	{ pressed = 0; 
+					if (value==128)	{ pressed = 0;
 									if (last_dpad_used[0] == 0) { btn = BTN_DPAD_LEFT; 	id = BTN_ID_DPAD_LEFT; }
 									else { btn = BTN_DPAD_RIGHT; 	id = BTN_ID_DPAD_RIGHT; }
 					}
@@ -308,7 +308,7 @@ void PLAT_pollInput(void) {
 		}
 	}
 }
-		
+
 
 
 
@@ -319,10 +319,10 @@ int PLAT_shouldWake(void) {
 		if (event.type==EV_KEY && (event.code==USER_BTN_MENU || ( ism22 && event.code==USER_BTN_SELECT)) && event.value==0) {
 			return 1;
 		}
-	}	
+	}
 	return 0;
 	}
-	
+
 }
 
 static struct VID_Context {
@@ -344,7 +344,7 @@ static struct VID_Context {
 	int linewidth;
 	int screen_size;
 	int ishdmi;
-	int width;  //current width 
+	int width;  //current width
 	int height; // current height
 	int pitch;  //sdl bpp
 	// store original fb values
@@ -394,13 +394,13 @@ int my_ion_release( void ){
 	   	if (ret < 0) {
 			LOG_info("CEDAR IOCTL_ENGINE_REL failed %d - %s\n", ret, strerror(errno));
 		} else {
-			LOG_info("CEDAR_IOCTL_ENGINE_REL success %d\n", ret); 		
+			LOG_info("CEDAR_IOCTL_ENGINE_REL success %d\n", ret);
 		}
 		LOG_info("close /dev/cedar_dev\n");
         close(vid.cedarfd);
         vid.cedarfd = -1 ;
     }
-    
+
     if (vid.ionfd >= 0 )
     {
 		LOG_info("close /dev/ion\n");
@@ -418,15 +418,15 @@ int my_ion_init( void ){
 	vid.ionfd = open( "/dev/ion" , O_RDWR);
 	LOG_info("Opened /dev/ion with fd %d\n", vid.ionfd);fflush(stdout);
 	if (vid.ionfd < 0) {
-		LOG_info("Error opening /dev/ion\n");fflush(stdout);		
+		LOG_info("Error opening /dev/ion\n");fflush(stdout);
 	}
 
 	vid.cedarfd = open("/dev/cedar_dev", O_RDONLY);
 	LOG_info("Opened /dev/cedar_dev with fd %d\n", vid.cedarfd);fflush(stdout);
 	if (vid.cedarfd < 0) {
-		LOG_info("Error opening /dev/cedar_dev\n");fflush(stdout);		
+		LOG_info("Error opening /dev/cedar_dev\n");fflush(stdout);
 	}
-    
+
     int ret = ioctl(vid.cedarfd, IOCTL_ENGINE_REQ, 0 );
 	if (ret < 0) {
 		LOG_info("CEDAR IOCTL_ENGINE_REQ failed %d - %s\n", ret, strerror(errno));
@@ -456,14 +456,14 @@ int my_ion_alloc(unsigned int size){
     //ok now mmap to provided file descriptor
 	LOG_info("Trying to map mem_ion fd %d to userspace\n", alloc_data.fd);fflush(stdout);
     void * virt_addr = mmap(NULL, size, PROT_READ|PROT_WRITE, MAP_SHARED, alloc_data.fd, 0);
-	
+
 	if (virt_addr == MAP_FAILED) {
 		LOG_info("ion mmap failed: %s\n", strerror(errno));
 		retvalue = 1;
 	} else {
 		LOG_info("ion mmap succeeded - mapped %llu bytes at address %p\n", alloc_data.len, virt_addr);
-	}	
-    
+	}
+
     struct user_iommu_param iommu_param;
     iommu_param.fd = alloc_data.fd;
     iommu_param.iommu_addr = 0 ;
@@ -473,7 +473,7 @@ int my_ion_alloc(unsigned int size){
 		retvalue = 1;
 	} else {
 		LOG_info("CEDAR IOCTL_GET_IOMMU_ADDR success %d\n", ret);
-		LOG_info("iommu_param: addr=%p, fd=%d\n", iommu_param.iommu_addr, iommu_param.fd);				
+		LOG_info("iommu_param: addr=%p, fd=%d\n", iommu_param.iommu_addr, iommu_param.fd);
 	}
 	fflush(stdout);
 
@@ -503,7 +503,7 @@ int my_ion_free(void){
 		LOG_info("Success!\n");
 	}
     close(vid.ion_mem.fd);
-    
+
     vid.ion_mem.size = 0 ;
     vid.ion_mem.fd = -1 ;
     vid.ion_mem.virt_addr = NULL ;
@@ -566,7 +566,7 @@ void print_disp_layer_config(const struct disp_layer_config *config) {
 		LOG_info("      align[1] = %u\n",config->info.fb.align[1]);
         LOG_info("      addr[2]: 0x%llx\n", config->info.fb.addr[2]);
 		LOG_info("      size[2]: width=%u height=%u\n", config->info.fb.size[2].width,config->info.fb.size[2].height);
-		LOG_info("      align[2] = %u\n",config->info.fb.align[2]);		
+		LOG_info("      align[2] = %u\n",config->info.fb.align[2]);
     }
 }
 
@@ -630,7 +630,7 @@ void print_fb_info(const struct fb_var_screeninfo *vinfo, const struct fb_fix_sc
 
 void get_fbinfo(void){
     ioctl(vid.fdfb, FBIOGET_FSCREENINFO, &vid.finfo);
-    ioctl(vid.fdfb, FBIOGET_VSCREENINFO, &vid.vinfo);	
+    ioctl(vid.fdfb, FBIOGET_VSCREENINFO, &vid.vinfo);
 	print_fb_info(&vid.vinfo, &vid.finfo);
 }
 
@@ -642,7 +642,7 @@ void set_fbinfo(void){
 	}
 }
 
-int getHDMIStatus(void) {	
+int getHDMIStatus(void) {
 	int retvalue = 0;
 	FILE * __stream = fopen("/sys/class/extcon/extcon0/state","r");
     if (__stream == (FILE *)0x0) {
@@ -652,14 +652,14 @@ int getHDMIStatus(void) {
 	  char acStack_128 [260];
       memset(acStack_128,0,0x100);
       fread(acStack_128,0x100,1,__stream);
-	  
+
       char *pcVar10 = strstr(acStack_128,"HDMI=1");
       if (pcVar10 == (char *)0x0) {
         retvalue = 0;
       }
       else {
         retvalue = 1;
-      }      
+      }
     }
 	fclose(__stream);
 	return retvalue;
@@ -688,7 +688,7 @@ int swap_buffers_init(void){
 
     int ret = ioctl(vid.dispfd, DISP_LAYER_GET_CONFIG, args);
     if (ret < 0) {
-		LOG_info("swap_buffers_init:ORIG DISP_LAYER_GET_CONFIG failed %d - %s\n", ret, strerror(errno));		
+		LOG_info("swap_buffers_init:ORIG DISP_LAYER_GET_CONFIG failed %d - %s\n", ret, strerror(errno));
 	} else {
 		LOG_info("swap_buffers_init:ORIG DISP_LAYER_GET_CONFIG success %d\n", ret);
 	}
@@ -700,7 +700,7 @@ int swap_buffers_init(void){
 	vid.layer_config.channel = 1;
     vid.layer_config.enable = 1;
 	vid.layer_config.info.fb.addr[0] = 0;
-	vid.layer_config.info.id = 0;	
+	vid.layer_config.info.id = 0;
 	ret = ioctl(vid.dispfd, DISP_LAYER_SET_CONFIG, args);
 	if (ret < 0) {
 		LOG_info("swap_buffers_init: DISP_LAYER_SET_CONFIG to reset failed %d - %s\n", ret, strerror(errno));
@@ -714,7 +714,7 @@ int swap_buffers_init(void){
 	vid.layer_config.layer_id = 0;
 	vid.layer_config.channel = 1;
     vid.layer_config.enable = 1;
-	vid.layer_config.info.id = 0;	
+	vid.layer_config.info.id = 0;
     vid.layer_config.info.mode = LAYER_MODE_BUFFER;
 	//config.info.mode = LAYER_MODE_COLOR;
 	//config.info.color = 0xffff0000*page + 0xffff*(1-page); //white
@@ -737,7 +737,7 @@ int swap_buffers_init(void){
     vid.layer_config.info.screen_win.y = 0;
     vid.layer_config.info.screen_win.width = vid.orig_screenwidth;
     vid.layer_config.info.screen_win.height = vid.orig_screenheight;
-	
+
 	ret = ioctl(vid.dispfd, DISP_LAYER_SET_CONFIG, args);
 	if (ret < 0) {
 		LOG_info("swap_buffers_init: DISP_LAYER_SET_CONFIG failed %d - %s\n", ret, strerror(errno));
@@ -755,15 +755,15 @@ int swap_buffers(int page){
 //	ret = ioctl(vid.cedarfd, IOCTL_FLUSH_CACHE_RANGE, &mycache_range);
 //	if (ret < 0) {
 //		LOG_info("swap_buffers: CEDAR IOCTL_FLUSH_CACHE_RANGE failed %d - %s\n", ret, strerror(errno));fflush(stdout);
-//	} 
+//	}
 	//else {
-	//	LOG_info("swap_buffers: CEDAR IOCTL_FLUSH_CACHE_RANGE success %d\n", ret); 		
-	//} 
+	//	LOG_info("swap_buffers: CEDAR IOCTL_FLUSH_CACHE_RANGE success %d\n", ret);
+	//}
 	memset(&vid.layer_config, 0, sizeof(vid.layer_config));
 	vid.layer_config.layer_id = 0;
 	vid.layer_config.channel = 1;
     vid.layer_config.enable = 1;
-	vid.layer_config.info.id = 0;	
+	vid.layer_config.info.id = 0;
     vid.layer_config.info.mode = LAYER_MODE_BUFFER;
 	//config.info.mode = LAYER_MODE_COLOR;
 	//config.info.color = 0xffff0000*page + 0xffff*(1-page); //white
@@ -792,7 +792,7 @@ int swap_buffers(int page){
 	ret = ioctl(vid.dispfd, DISP_LAYER_SET_CONFIG, args);
 	if (ret < 0) {
 		LOG_info("swap_buffers: DISP_LAYER_SET_CONFIG failed %d - %s\n", ret, strerror(errno));
-	} 
+	}
 	//else {
 	//	LOG_info("SETCONFIG SUCCESS!!!!\n");
 	//}
@@ -809,6 +809,9 @@ int isnewdtb;
 SDL_Surface* PLAT_initVideo(void) {
 
 	readDispSys();
+	// The bootloader/display driver color-bar test pattern can remain visible
+	// until the first flip. Disable it before allocating the new framebuffer.
+	system("echo 0 > /sys/class/disp/disp/attr/colorbar");
 	isnewdtb = 0;
 	//set default cpu frequencies only if defined, useful for cases where the initvideo is reqquested out of the system.
 	if (getenv("CPU_SPEED_MENU") != NULL && getenv("CPU_SPEED_POWERSAVE") != NULL && getenv("CPU_SPEED_GAME") != NULL && getenv("CPU_SPEED_PERF") != NULL && getenv("CPU_SPEED_MAX") != NULL) {
@@ -817,17 +820,17 @@ SDL_Surface* PLAT_initVideo(void) {
 		LOG_info("CPU_SPEED_MENU = %d\n", cpufreq_menu);
 		cpufreq_powersave= atoi(getenv("CPU_SPEED_POWERSAVE"));
 		LOG_info("CPU_SPEED_POWERSAVE = %d\n", cpufreq_powersave);
-		cpufreq_game = atoi(getenv("CPU_SPEED_GAME"));	
+		cpufreq_game = atoi(getenv("CPU_SPEED_GAME"));
 		LOG_info("CPU_SPEED_GAME = %d\n", cpufreq_game);
 		cpufreq_perf = atoi(getenv("CPU_SPEED_PERF"));
 		LOG_info("CPU_SPEED_PERF = %d\n", cpufreq_perf);
 		cpufreq_max = atoi(getenv("CPU_SPEED_MAX"));
 		LOG_info("CPU_SPEED_MAX = %d\n", cpufreq_max);
-	} 
+	}
 
 	ism22 = 0;
 
-	//m21 is a 1280x720 screen 
+	//m21 is a 1280x720 screen
 	vid.orig_fbheight = _HDMI_HEIGHT;
 	vid.orig_fbwidth = _HDMI_WIDTH;
 	vid.orig_fbheightvirtual = _HDMI_HEIGHT * 2;
@@ -901,7 +904,7 @@ SDL_Surface* PLAT_initVideo(void) {
 		//is an m21
 		w = FIXED_WIDTH;
 		h = FIXED_HEIGHT;
-		p = FIXED_PITCH;		
+		p = FIXED_PITCH;
 	}
 
 	DEVICE_WIDTH = w;
@@ -910,7 +913,7 @@ SDL_Surface* PLAT_initVideo(void) {
 	GAME_WIDTH = w;
 	GAME_HEIGHT = h;
 
-	
+
 	vid.rotate = ism22 * (1 - getHDMIStatus());   //m21 always 0, m22 is 0 on HDMI and 1 on display
 	LOG_info("ism22 = %d, HDMI = %d, rotate = %d\n", ism22, getHDMIStatus(), vid.rotate);fflush(stdout);
 	if (vid.rotate % 2 ==1) {
@@ -954,16 +957,16 @@ SDL_Surface* PLAT_initVideo(void) {
 	//vid.rotate=1;
     //vid.vinfo.xres=480;
     //vid.vinfo.yres=854;
-	
-	
+
+
 	vid.vinfo.xres=GAME_WIDTH;
 	vid.vinfo.yres=GAME_HEIGHT;
 	vid.vinfo.xoffset=0;
 	vid.vinfo.yoffset=0;
 	vid.vinfo.xres_virtual=vid.vinfo.xres;
 	vid.vinfo.yres_virtual=vid.vinfo.yres*2;
-	vid.vinfo.bits_per_pixel=32;	
-	
+	vid.vinfo.bits_per_pixel=32;
+
     set_fbinfo();
 	get_fbinfo();
 //	readDispSys();
@@ -971,7 +974,7 @@ SDL_Surface* PLAT_initVideo(void) {
 	InitAssetRects();
 	vid.screen =  SDL_CreateRGBSurface(0, DEVICE_WIDTH, DEVICE_HEIGHT, FIXED_DEPTH, RGBA_MASK_565);
 	vid.screengame =  SDL_CreateRGBSurface(0, GAME_WIDTH, GAME_HEIGHT, FIXED_DEPTH, RGBA_MASK_565);
-	vid.screen2 = SDL_CreateRGBSurface(0, GAME_WIDTH, GAME_HEIGHT, FIXED_DEPTH, RGBA_MASK_565); 
+	vid.screen2 = SDL_CreateRGBSurface(0, GAME_WIDTH, GAME_HEIGHT, FIXED_DEPTH, RGBA_MASK_565);
 	LOG_info("vid.screen: %ix%i\n", vid.screen->w, vid.screen->h);fflush(stdout);
 	LOG_info("vid.screengame: %ix%i\n", vid.screengame->w, vid.screengame->h);fflush(stdout);
 	LOG_info("vid.screen2: %ix%i\n", vid.screen2->w, vid.screen2->h);fflush(stdout);
@@ -983,7 +986,7 @@ SDL_Surface* PLAT_initVideo(void) {
 	vid.linewidth = vid.finfo.line_length/(vid.vinfo.bits_per_pixel/8);
 
 	my_ion_init();
-	vid.ionmmapfailed = my_ion_alloc(vid.screen_size*2);	
+	vid.ionmmapfailed = my_ion_alloc(vid.screen_size*2);
 //	vid.ionmmapfailed=1; //force standard mmap on framebuffer till I understand how to get layers working even on hdmi output
 //	vid.ionmmapfailed += vid.ishdmi; //always use framebuffer in case of hdmi output, let's see if it improves.
 //	vid.ionmmapfailed = vid.ionmmapfailed>0 ? 1 : 0;
@@ -1010,7 +1013,7 @@ SDL_Surface* PLAT_initVideo(void) {
 	{
 		swap_buffers_init();
 		usleep(30000);
-	} 
+	}
 	PLAT_clearAll();
 	pan_display(vid.page * vid.ionmmapfailed);
 	vid.page = 1;
@@ -1019,8 +1022,10 @@ SDL_Surface* PLAT_initVideo(void) {
 }
 
 void PLAT_quitVideo(void) {
+	// Leave the panel on the last valid framebuffer instead of enabling the
+	// display driver's red/green/blue color-bar test pattern during reload.
 	//system("cat /sys/class/disp/disp/attr/sys >> /mnt/SDCARD/dispsys.txt");
-	system("echo 1 > /sys/class/disp/disp/attr/colorbar");
+	system("echo 0 > /sys/class/disp/disp/attr/colorbar");
 	PLAT_clearAll();
 	if (vid.ionmmapfailed!=0){
 		if (vid.fbmmap && vid.fbmmap != MAP_FAILED) { munmap(vid.fbmmap, vid.offset*2);}
@@ -1064,7 +1069,7 @@ void PLAT_quitVideo(void) {
 		usleep(40000);
 		my_ion_release();
 		usleep(40000);
-	}	
+	}
 		//restore fb values
 //	vid.vinfo.yres = vid.orig_fbheight;
 //	vid.vinfo.xres = vid.orig_fbwidth;
@@ -1194,7 +1199,7 @@ void PLAT_flip(SDL_Surface* IGNORED, int sync) { //this rotates minarch menu + m
 		if (vid.rotate == 1)
 		{
 			// 90 Rotation
-			
+
 			if (vid.ionmmapfailed!=0){
 	//			LOG_info("Executing 90deg 32\n");
 				FlipRotate090(vid.screen, vid.fbmmap+vid.offset*vid.page,vid.linewidth, vid.targetRect);
@@ -1228,10 +1233,10 @@ void PLAT_flip(SDL_Surface* IGNORED, int sync) { //this rotates minarch menu + m
 		//fflush(stdout);
 		if (vid.ionmmapfailed==0){
 			my_ion_flushWrite();
-			swap_buffers(vid.page);		
+			swap_buffers(vid.page);
 		}
 		pan_display(vid.page * vid.ionmmapfailed);
-		
+
 	} else {
 		//maybe one Day I'll find the time to investigate on why neon copy functions aren't working here
 		// No Rotation
@@ -1246,15 +1251,15 @@ void PLAT_flip(SDL_Surface* IGNORED, int sync) { //this rotates minarch menu + m
 		if ((sync && vid.ishdmi) || (sync && isnewdtb)) { //if is on hdmi, follow the setting, otherwise skip vsync as it isn't fast enough on internal screen (38fps on m22, 51fps on m21)
 			pan_display(vid.page * vid.ionmmapfailed);
 		}
-	}	
+	}
 	vid.renderingGame = 0;
 	vid.page ^= 1;
-	
+
 	//LOG_info("Total Flip TOOK: %imsec, Draw TOOK: %imsec\n", SDL_GetTicks()-now, now2-now);fflush(stdout);
 }
 ///////////////////////////////
 
-// TODO: 
+// TODO:
 #define OVERLAY_WIDTH PILL_SIZE // unscaled
 #define OVERLAY_HEIGHT PILL_SIZE // unscaled
 #define OVERLAY_BPP 4
@@ -1335,7 +1340,7 @@ void rawBacklight(int value) {
 		ioctl(disp_fd, DISP_LCD_BACKLIGHT_ENABLE, args);
 	} else {
 		ioctl(disp_fd, DISP_LCD_BACKLIGHT_DISABLE, args);
-	}	
+	}
 	close(disp_fd);
 }
 
@@ -1343,11 +1348,11 @@ void rawBacklight(int value) {
 void PLAT_enableBacklight(int enable) {
     if (enable>0){
 		SetBrightness(GetBrightness());
-        rawBacklight(1);		
+        rawBacklight(1);
     } else {
 		rawBacklight(0);
 	//	SetRawBrightness(254);
-    }	
+    }
 }
 
 void PLAT_powerOff(void) {
@@ -1359,8 +1364,8 @@ void PLAT_powerOff(void) {
 	SND_quit();
 	VIB_quit();
 	PWR_quit();
-	GFX_quit();	
-	
+	GFX_quit();
+
 	touch("/tmp/poweroff");
 	exit(0);
 }
@@ -1380,13 +1385,13 @@ Available frequency
 1008000
 1104000
 1200000
-*/	
+*/
 	switch (speed) {
 		case CPU_SPEED_MENU: 		freq = cpufreq_menu; break;
 		case CPU_SPEED_POWERSAVE:	freq = cpufreq_powersave; break;
 		case CPU_SPEED_NORMAL: 		freq = cpufreq_game ; break;
 		case CPU_SPEED_PERFORMANCE: freq = cpufreq_perf ; break;
-		case CPU_SPEED_MAX:			freq = cpufreq_max ; break;	
+		case CPU_SPEED_MAX:			freq = cpufreq_max ; break;
 	}
 	if (freq) {
 		putFile(GOVERNOR_PATH, "userspace");
@@ -1394,7 +1399,7 @@ Available frequency
 		LOG_info("Set CPU speed to %i\n", freq);
 		cur_cpu_freq = freq/1000;
 	}
-	
+
 }
 
 void PLAT_setRumble(int effect, int strength)
