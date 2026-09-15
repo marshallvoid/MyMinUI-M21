@@ -407,6 +407,9 @@ static void BoxartCache_put(char* path, SDL_Surface* surface);
 static void SearchResult_boxartPath(SearchResult* hit, char* out);
 static void MenuOpt_boxartPath(int i, char* out);
 static void MenuOpt_preloadAt(int i);
+static void boxartPreload(void);
+static char preload_dir[256] = "";
+static int preload_cursor = 0;
 
 static void SearchResults_clear(void) {
 	if (search_results) SearchResultArray_free(search_results);
@@ -477,7 +480,7 @@ static void Tools_refresh(void) {
 	EntryArray_sort(tools_entries);
 }
 // Resolve the display boxart for Y/Options item i into out (empty if none).
-// Virtual items (Search/Shutdown/...): /Imgs/<name>.png, then default.png.
+// Virtual items (Search/Shutdown/...): /Imgs/<name>.png, then Tools.png, then default.png.
 // Pak items: via getBoxartPath().
 static void MenuOpt_boxartPath(int i, char* out) {
 	out[0] = '\0';
@@ -489,11 +492,14 @@ static void MenuOpt_boxartPath(int i, char* out) {
 		getBoxartPath(tool, out);
 		return;
 	}
-	sprintf(out, SDCARD_PATH "/Imgs/%s.png", name);
-	if (!exists(out)) {
-		sprintf(out, SDCARD_PATH "/Imgs/default.png");
-		if (!exists(out)) out[0] = '\0';
-	}
+  sprintf(out, SDCARD_PATH "/Imgs/%s.png", name);
+  if (!exists(out)) {
+    sprintf(out, SDCARD_PATH "/Imgs/Tools.png");
+    if (!exists(out)) {
+      sprintf(out, SDCARD_PATH "/Imgs/default.png");
+      if (!exists(out)) out[0] = '\0';
+    }
+  }
 }
 static void MenuOpt_preloadAt(int i) { // decode + cache one Y/Options art if needed
 	char path[512];
@@ -571,6 +577,10 @@ static void Search_open(void) {
 	kb_upper = 0;
 	SearchResults_clear();
 	Tools_refresh(); // Search first, then Tools/*.pak sorted A-Z
+	// Preload the first option's boxart immediately so it's in the cache
+	// before the first render (avoids empty boxart on first-open).
+	preload_dir[0] = '\0'; // force boxartPreload() to reset its cursor
+	boxartPreload();
 }
 static void Search_close(void) {
 	show_search = 0;
@@ -1854,6 +1864,21 @@ static int getFirstDisc(char* m3u_path, char* disc_path) { // based on getDiscs(
 	return found;
 }
 */
+static int dirHasM3u(char* path) {
+	DIR *dh = opendir(path);
+	if (!dh) return 0;
+	struct dirent *dp;
+	int has_m3u = 0;
+	while ((dp = readdir(dh)) != NULL) {
+		if (suffixMatch(".m3u", dp->d_name)) {
+			has_m3u = 1;
+			break;
+		}
+	}
+	closedir(dh);
+	return has_m3u;
+}
+
 static void addEntries(Array* entries, char* path) {
 	DIR *dh = opendir(path);
 	if (dh!=NULL) {
@@ -1862,6 +1887,9 @@ static void addEntries(Array* entries, char* path) {
 		char full_path[256];
 		sprintf(full_path, "%s/", path);
 		tmp = full_path + strlen(full_path);
+
+		int has_m3u = dirHasM3u(path);
+
 		while((dp = readdir(dh)) != NULL) {
 			if (hide(dp->d_name)) continue;
 			if (isHidden(path, dp->d_name)) continue;
@@ -1871,6 +1899,10 @@ static void addEntries(Array* entries, char* path) {
 			// (in Collections the .txt files ARE the collections, keep them)
 			if (!in_collections && !is_dir && isMetadataFile(dp->d_name)) continue;
 			if (in_collections && !is_dir && !suffixMatch(".txt", dp->d_name) && isMetadataFile(dp->d_name)) continue;
+			// When an .m3u playlist exists in this directory, hide the
+			// individual .bin/.cue disc files — the .m3u represents the
+			// multi-disc game as a single selectable entry.
+			if (has_m3u && !is_dir && (suffixMatch(".bin", dp->d_name) || suffixMatch(".cue", dp->d_name))) continue;
 			strcpy(tmp, dp->d_name);
 			int type;
 			if (is_dir) {
@@ -2478,8 +2510,6 @@ static void Boxart_quit(void) {
 }
 
 // preload state: remembers which directory has been (or is being) preloaded
-static char preload_dir[256] = "";
-static int preload_cursor = 0;
 
 static int getBoxartPath(Entry* entry, char* out); // defined below
 
@@ -2546,17 +2576,23 @@ static int getBoxartPath(Entry* entry, char* out) {
 	}
 
   // generic fallbacks (covers faux directories and subfolders)
-	sprintf(out, "%s/Imgs/%s.png", entry->path, entry->name);
-	if (exists(out)) return 1;
+ 	sprintf(out, "%s/Imgs/%s.png", entry->path, entry->name);
+ 	if (exists(out)) return 1;
 
    sprintf(out, SDCARD_PATH "/Imgs/%s.png", entry->name);
-	if (exists(out)) return 1;
+ 	if (exists(out)) return 1;
+
+  // PAK-specific fallback: try Tools.png before the generic default
+  if (entry->type==ENTRY_PAK) {
+    sprintf(out, SDCARD_PATH "/Imgs/Tools.png");
+    if (exists(out)) return 1;
+  }
 
    // NEW: system-wide default boxart fallback
-	sprintf(out, SDCARD_PATH "/Imgs/default.png");
-	if (exists(out)) return 1;
-	out[0] = '\0';
-	return 0;
+ 	sprintf(out, SDCARD_PATH "/Imgs/default.png");
+ 	if (exists(out)) return 1;
+ 	out[0] = '\0';
+ 	return 0;
 }
 
 // preload the boxart of the whole current directory while the menu is idle,
