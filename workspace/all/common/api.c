@@ -854,7 +854,7 @@ int GFX_blitHardwareGroup(SDL_Surface* dst, int show_setting, int _fancy_mode) {
 			setting_max = VOLUME_MAX;
 		}
 
-		int asset = show_setting==1?ASSET_BRIGHTNESS:(setting_value>0?ASSET_VOLUME:ASSET_VOLUME_MUTE);
+		int asset = (show_setting==1)?ASSET_BRIGHTNESS:(setting_value>0?ASSET_VOLUME:ASSET_VOLUME_MUTE);
 		int ax = ox + (show_setting==1 ? SCALE1(6) : SCALE1(8));
 		int ay = oy + (show_setting==1 ? SCALE1(5) : SCALE1(7));
 		GFX_blitAsset(asset, NULL, dst, &(SDL_Rect){ax,ay});
@@ -911,8 +911,12 @@ int GFX_blitHardwareGroup(SDL_Surface* dst, int show_setting, int _fancy_mode) {
 }
 void GFX_blitHardwareHints(SDL_Surface* dst, int show_setting, int _fancy_mode) {
 	if (BTN_MOD_VOLUME==BTN_SELECT && BTN_MOD_BRIGHTNESS==BTN_START) {
-		if (show_setting==1) GFX_blitButtonGroup((char*[]){ "SELECT","VOLUME",  NULL }, 0, dst, 0, _fancy_mode);
-		else GFX_blitButtonGroup((char*[]){ "START","BRIGHTNESS",  NULL }, 0, dst, 0, _fancy_mode);
+		if (show_setting==1) GFX_blitButtonGroup((char*[]){ "START","BRIGHTNESS",  NULL }, 0, dst, 0, _fancy_mode);
+		else GFX_blitButtonGroup((char*[]){ "SELECT","VOLUME",  NULL }, 0, dst, 0, _fancy_mode);
+	}
+	else if (BTN_MOD_BRIGHTNESS==BTN_SELECT) {
+		if (show_setting==1) GFX_blitButtonGroup((char*[]){ "SELECT","BRIGHTNESS",  NULL }, 0, dst, 0, _fancy_mode);
+		else GFX_blitButtonGroup((char*[]){ "VOL +/","VOLUME",  NULL }, 0, dst, 0, _fancy_mode);
 	}
 	else {
 		if (show_setting==1) GFX_blitButtonGroup((char*[]){ BRIGHTNESS_BUTTON_LABEL,"BRIGHTNESS",  NULL }, 0, dst, 0, _fancy_mode);
@@ -2155,7 +2159,7 @@ void PWR_update(int* _dirty, int* _show_setting, PWR_callback_t before_sleep, PW
 
 	// TODO: only delay hiding setting changes if that setting didn't require a modifier button be held, otherwise release as soon as modifier is released
 
-	int delay_settings = BTN_MOD_BRIGHTNESS==BTN_MENU; // when both volume and brighness require a modifier hide settings as soon as it is released
+	int delay_settings = BTN_MOD_BRIGHTNESS==BTN_MENU; // when both volume and brightness require a modifier hide settings as soon as it is released
 	#define SETTING_DELAY 500
 	if (show_setting && (now-setting_shown_at>=SETTING_DELAY || !delay_settings) && !PAD_isPressed(BTN_MOD_VOLUME) && !PAD_isPressed(BTN_MOD_BRIGHTNESS)) {
 		show_setting = 0;
@@ -2182,7 +2186,6 @@ void PWR_update(int* _dirty, int* _show_setting, PWR_callback_t before_sleep, PW
 			show_setting = 2;
 		}
 	}
-
 	if (show_setting) dirty = 1; // shm is slow or keymon is catching input on the next frame
 	if (_dirty) *_dirty = dirty;
 	if (_show_setting) *_show_setting = show_setting;

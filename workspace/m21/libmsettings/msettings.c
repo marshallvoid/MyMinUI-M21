@@ -24,7 +24,8 @@ typedef struct Settings {
 	int speaker;
 	int unused[2]; // for future use
 	// NOTE: doesn't really need to be persisted but still needs to be shared
-	int jack; 
+	int jack;
+	int led_brightness;
 } Settings;
 static Settings DefaultSettings = {
 	.version = SETTINGS_VERSION,
@@ -32,6 +33,7 @@ static Settings DefaultSettings = {
 	.headphones = 4,
 	.speaker = 8,
 	.jack = 0,
+	.led_brightness = 120,
 };
 static Settings *settings;
 
@@ -88,6 +90,7 @@ void InitSettings(void) {
 	
 	SetVolume(GetVolume());
 	SetBrightness(GetBrightness());
+	SetRawLED(settings->led_brightness);
 	// system("echo $(< " BRIGHTNESS_PATH ")");
 }
 static inline void SaveSettings(void) {
@@ -130,6 +133,8 @@ void SetBrightness(int value) {
 	SaveSettings();
 }
 
+#define LED_CONF "/mnt/SDCARD/.userdata/m21/led.conf"
+
 int GetVolume(void) { // 0-7
 	return settings->jack ? settings->headphones : settings->speaker;
 }
@@ -156,6 +161,11 @@ void SetRawBrightness(int val) { // 0 - 255
 	close(disp_fd);
 	// printf("SetRawBrightness(%i)\n", val); fflush(stdout);
 	
+}
+void SetRawLED(int val) { // 0 - 255, writes to all LED sysfs brightness files
+	char cmd[512];
+	sprintf(cmd, "i=0; while [ $i -lt 16 ]; do echo %d > /sys/class/leds/sunxi_led${i}r/brightness 2>/dev/null; echo %d > /sys/class/leds/sunxi_led${i}g/brightness 2>/dev/null; echo %d > /sys/class/leds/sunxi_led${i}b/brightness 2>/dev/null; i=$((i+1)); done", val, val, val);
+	system(cmd);
 }
 
 long map(int x, int in_min, int in_max, int out_min, int out_max) {

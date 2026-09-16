@@ -336,7 +336,8 @@ int main(int argc , char* argv[]) {
 	
 	if (save_changes) {
 		char cmd[512];
-		snprintf(cmd, sizeof(cmd), "date -u -s '%d-%d-%d %d:%d:%d';hwclock --utc -w", year_selected, month_selected, day_selected, hour_selected, minute_selected, seconds_selected);
+		// always reset seconds to 00 on save (no RTC, sub-minute precision is meaningless)
+		snprintf(cmd, sizeof(cmd), "date -u -s '%d-%d-%d %d:%d:00';hwclock --utc -w", year_selected, month_selected, day_selected, hour_selected, minute_selected);
 		system(cmd);
 	}
 	

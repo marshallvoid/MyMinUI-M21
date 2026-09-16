@@ -101,7 +101,6 @@ int main (int argc, char *argv[]) {
 	uint32_t val;
 	uint32_t menu_pressed = 0;
 	uint32_t select_pressed = 0;
-	uint32_t start_pressed = 0;
 	
 	uint32_t up_pressed = 0;
 	uint32_t up_just_pressed = 0;	
@@ -132,10 +131,9 @@ int main (int argc, char *argv[]) {
 
 				if (( ev.type != EV_KEY ) || ( val > REPEAT )) continue;
 	//			printf("Code: %i (%i)\n", ev.code, val); fflush(stdout);
-				if (ev.code == USER_BTN_MENU) menu_pressed = val;
-				else if (ev.code == USER_BTN_SELECT) select_pressed = val;
-				else if (ev.code == USER_BTN_START) start_pressed = val;
-				else if (ev.code == USER_BTN_VOLUMEUP) {
+			if (ev.code == USER_BTN_MENU) menu_pressed = val;
+			else if (ev.code == USER_BTN_SELECT) select_pressed = val;
+			else if (ev.code == USER_BTN_VOLUMEUP) {
 					up_pressed = up_just_pressed = val;
 					if (val) up_repeat_at = now + 300;
 				} 
@@ -148,6 +146,7 @@ int main (int argc, char *argv[]) {
 		
 		if (ignore) {
 			menu_pressed = 0;
+			select_pressed = 0;
 			up_pressed = up_just_pressed = 0;
 			down_pressed = down_just_pressed = 0;
 			up_repeat_at = 0;
@@ -155,13 +154,11 @@ int main (int argc, char *argv[]) {
 		}
 		
 		if (up_just_pressed || (up_pressed && now>=up_repeat_at)) {
-			if ((menu_pressed) || ((select_pressed) && (start_pressed))) {
-				//printf("brightness up\n"); fflush(stdout);
+			if (select_pressed) {
 				val = GetBrightness();
 				if (val<BRIGHTNESS_MAX) SetBrightness(++val);
 			}
 			else {
-				//printf("volume up\n"); fflush(stdout);
 				val = GetVolume();
 				if (val<VOLUME_MAX) SetVolume(++val);
 			}
@@ -171,13 +168,11 @@ int main (int argc, char *argv[]) {
 		}
 		
 		if (down_just_pressed || (down_pressed && now>=down_repeat_at)) {
-			if ((menu_pressed) || ((select_pressed) && (start_pressed))) {
-				//printf("brightness down\n"); fflush(stdout);
+			if (select_pressed) {
 				val = GetBrightness();
 				if (val>BRIGHTNESS_MIN) SetBrightness(--val);
 			}
 			else {
-				 //printf("volume down\n"); fflush(stdout);
 				val = GetVolume();
 				if (val>VOLUME_MIN) SetVolume(--val);
 			}

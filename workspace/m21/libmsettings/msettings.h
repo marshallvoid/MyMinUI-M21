@@ -10,6 +10,7 @@ int GetVolume(void);
 
 void SetRawBrightness(int value); // 255-0
 void SetRawVolume(int value); // 0-40
+void SetRawLED(int value); // 0-255, writes to LED sysfs brightness
 
 void SetBrightness(int value); // 0-10
 void SetVolume(int value); // 0-20

@@ -47,6 +47,8 @@ setup:
 	mkdir -p ./build/PAYLOAD
 
 	cp -R ./skeleton/BASE ./build/BASE
+	cp -R ./docs ./build/BASE/
+	rm -f ./build/BASE/docs/PAKS.md ./build/BASE/docs/INSTALL.md
 	cp -R ./skeleton/SYSTEM/res ./build/SYSTEM/res
 	cp -R ./skeleton/SYSTEM/$(PLATFORM) ./build/SYSTEM/$(PLATFORM)
 	cp -R ./skeleton/EXTRAS/Bios ./build/EXTRAS/Bios
@@ -81,6 +83,7 @@ system:
 	cp ./workspace/$(PLATFORM)/libmsettings/libmsettings.so ./build/SYSTEM/$(PLATFORM)/lib
 	cp ./workspace/all/minui/build/$(PLATFORM)/minui.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/all/minarch/build/$(PLATFORM)/minarch.elf ./build/SYSTEM/$(PLATFORM)/bin/
+	cp ./workspace/all/clock/build/$(PLATFORM)/clock.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/all/clock/build/$(PLATFORM)/clock.elf ./build/EXTRAS/Tools/$(PLATFORM)/Clock.pak/
 	cp ./workspace/all/minput/build/$(PLATFORM)/minput.elf ./build/EXTRAS/Tools/$(PLATFORM)/Input.pak/
 	cp ./workspace/all/clear_recent/build/$(PLATFORM)/clear_recent.elf "./build/EXTRAS/Tools/$(PLATFORM)/Clear Recently Played.pak/"
@@ -121,7 +124,7 @@ package:
 	rm -rf ./build/EXTRAS
 	rm -rf ./build/PAYLOAD
 	rm -rf ./releases/$(RELEASE_NAME)-$(PLATFORM).zip
-	cd ./build/FULL && zip -r ../../releases/$(RELEASE_NAME)-$(PLATFORM).zip Bios Cheats Collections Emus Imgs Roms Tools m21 MinUI.zip README.txt
+	cd ./build/FULL && zip -r ../../releases/$(RELEASE_NAME)-$(PLATFORM).zip Bios Cheats Collections docs Emus Imgs Roms Tools m21 MinUI.zip README.txt
 
 
 	echo "$(RELEASE_NAME)" > ./build/latest.txt

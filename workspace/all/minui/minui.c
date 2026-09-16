@@ -590,6 +590,7 @@ static void Search_close(void) {
 }
 
 // full-width 640px on-screen keyboard: 3x10 letters/digits + SPACE/DEL/ABC row
+// Renders within the given sub-rectangle (sx..sx+sw). Used for the left pane.
 static void Search_drawKeyboard(SDL_Surface* screen, int sx, int qy, int sw) {
 	static const char* kb_rows_lower[3] = {"qwertyuiop","asdfghjkl_","zxcvbnm123"};
 	static const char* kb_rows_upper[3] = {"QWERTYUIOP","ASDFGHJKL_","ZXCVBNM123"};
@@ -639,7 +640,7 @@ static void Search_drawKeyboard(SDL_Surface* screen, int sx, int qy, int sw) {
 	// small live hint of match count
 	int rtotal = search_results ? search_results->count : 0;
 	char hint[64];
-	sprintf(hint, "%d hit%s - START: results", rtotal, rtotal==1?"":"s");
+	sprintf(hint, "%d hit%s - START: full", rtotal, rtotal==1?"":"s");
 	if (!hint_surface || !exactMatch(cached_hint, hint)) {
 		if (hint_surface) SDL_FreeSurface(hint_surface);
 		strcpy(cached_hint, hint);
@@ -647,6 +648,70 @@ static void Search_drawKeyboard(SDL_Surface* screen, int sx, int qy, int sw) {
 	}
 	SDL_Surface* htext = hint_surface;
 	SDL_BlitSurface(htext, NULL, screen, &(SDL_Rect){sx,ay+key_h+SCALE1(4)});
+}
+
+// draw the result list in a sub-rectangle — used for both the live pane
+// (right side during keyboard) and the full-screen view (menu 2).
+static void Search_drawResults(SDL_Surface* screen, int sx, int qy, int sw, int rows, int fancy, int show_setting) {
+	int rtotal = search_results ? search_results->count : 0;
+	int srows = rows-1; // query line takes one row (or all rows in full view)
+	if (srows<1) srows = 1;
+	if (fancy && rtotal>0 && search_selected>=0 && search_selected<rtotal) {
+		SearchResult* sel_hit = search_results->items[search_selected];
+		char sel_boxart[512];
+		SearchResult_boxartPath(sel_hit, sel_boxart);
+		if (sel_boxart[0]) {
+			SDL_Surface* boxart = BoxartCache_get(sel_boxart);
+			if (!boxart) {
+				boxart = loadBoxart(sel_boxart);
+				if (boxart) BoxartCache_put(sel_boxart, boxart);
+			}
+			if (boxart) {
+				SDL_BlitSurface(boxart, NULL, screen, &(SDL_Rect){0,0});
+			}
+		}
+	}
+	int rend = search_start+srows;
+	if (rend>rtotal) rend = rtotal;
+	for (int i=search_start,j=0; i<rend; i++,j++) {
+		SearchResult* hit = search_results->items[i];
+		int is_sel = (i==search_selected);
+		TTF_Font* _font = font.large;
+		SDL_Color tc = COLOR_WHITE;
+		int available_width = sw;
+		if (fancy) {
+			_font = font.medium;
+			tc = COLOR_GRAY;
+			available_width = screen->w - (screen->w*3/5);
+		}
+		if (is_sel && fancy) {
+			_font = font.large;
+			tc = COLOR_WHITE;
+			available_width = sw;
+		}
+		int row_h = SCALE1(PILL_SIZE-(5*fancy));
+		int row_y = qy+j*row_h;
+		char rawline[320];
+		sprintf(rawline, "%s (%s)", hit->name, hit->emu);
+		char lined[320];
+		int text_width = GFX_truncateText(_font, rawline, lined, available_width, SCALE1(BUTTON_PADDING*2));
+		int max_width = MIN(available_width, text_width);
+		if (is_sel && !fancy) {
+			GFX_blitPill(ASSET_WHITE_PILL, screen, &(SDL_Rect){sx,row_y,max_width,SCALE1(PILL_SIZE)});
+			tc = COLOR_BLACK;
+		}
+		SDL_Surface* text = TTF_RenderUTF8_Blended(_font, lined, tc);
+		if (is_sel && fancy && hit->type==ENTRY_ROM) {
+			SDL_Surface* textout = TTF_RenderUTF8_Blended(font.largeoutline, lined, COLOR_BLACK);
+			SDL_BlitSurface(textout, &(SDL_Rect){0,0,max_width-SCALE1(BUTTON_PADDING*2),textout->h}, screen, &(SDL_Rect){sx+SCALE1(BUTTON_PADDING),row_y+SCALE1(4)});
+			SDL_FreeSurface(textout);
+		}
+		SDL_BlitSurface(text, &(SDL_Rect){0,0,max_width-SCALE1(BUTTON_PADDING*2),text->h}, screen, &(SDL_Rect){sx+SCALE1(BUTTON_PADDING),row_y+SCALE1(4)});
+		SDL_FreeSurface(text);
+	}
+	if (rtotal==0) {
+		GFX_blitMessage(font.large, "No results", screen, &(SDL_Rect){sx,qy,sw,screen->h-qy});
+	}
 }
 
 // search UI: options popup (menu 0), full 640px keyboard (menu 1),
@@ -753,7 +818,7 @@ static void Search_draw(SDL_Surface* screen, int show_setting, int fancy) {
 		int qy = SCALE1(PADDING);
 		SDL_BlitSurface(qtext, &(SDL_Rect){0,0,sw,qtext->h}, screen, &(SDL_Rect){sx,qy});
 
-		if (show_search_menu==2) { // results fill the screen under the query
+		if (show_search_menu==2) { // full-screen results under the query
 			int rtotal = search_results ? search_results->count : 0;
 			// Reserve one row for the query line so the last result never
 			// slides under the bottom button hints (menu uses full height,
@@ -787,9 +852,6 @@ static void Search_draw(SDL_Surface* screen, int show_setting, int fancy) {
 			for (int i=search_start,j=0; i<rend; i++,j++) {
 				SearchResult* hit = search_results->items[i];
 				int is_sel = (i==search_selected);
-				// Same typography as the main rom list: normal rows use
-				// font.medium + gray in fancy mode, only the selected row
-				// grows to font.large + white (with black outline for ROMs).
 				TTF_Font* _font = font.large;
 				SDL_Color tc = COLOR_WHITE;
 				int available_width = sw;
@@ -803,11 +865,8 @@ static void Search_draw(SDL_Surface* screen, int show_setting, int fancy) {
 					tc = COLOR_WHITE;
 					available_width = sw;
 				}
-				// Y step matches the main list (compressed in fancy mode).
 				int row_h = SCALE1(PILL_SIZE-(5*fancy));
 				int row_y = ry+j*row_h;
-				// Build the final "Name (emu)" string FIRST, then truncate
-				// once so the pill width always matches the drawn text.
 				char rawline[320];
 				sprintf(rawline, "%s (%s)", hit->name, hit->emu);
 				char lined[320];
@@ -818,7 +877,7 @@ static void Search_draw(SDL_Surface* screen, int show_setting, int fancy) {
 					tc = COLOR_BLACK;
 				}
 				SDL_Surface* text = TTF_RenderUTF8_Blended(_font, lined, tc);
-				if (is_sel && fancy && hit->type==ENTRY_ROM) { // black outline, like the main list
+				if (is_sel && fancy && hit->type==ENTRY_ROM) {
 					SDL_Surface* textout = TTF_RenderUTF8_Blended(font.largeoutline, lined, COLOR_BLACK);
 					SDL_BlitSurface(textout, &(SDL_Rect){0,0,max_width-SCALE1(BUTTON_PADDING*2),textout->h}, screen, &(SDL_Rect){sx+SCALE1(BUTTON_PADDING),row_y+SCALE1(4)});
 					SDL_FreeSurface(textout);
@@ -830,15 +889,80 @@ static void Search_draw(SDL_Surface* screen, int show_setting, int fancy) {
 				GFX_blitMessage(font.large, "No results", screen, &(SDL_Rect){0,ry,screen->w,screen->h-ry});
 			}
 		}
-		else { // keyboard grid
-			Search_drawKeyboard(screen, sx, qy, sw);
+		else { // menu 1: split screen — keyboard left (40%), results right (60%)
+			int left_w = screen->w * 40 / 100;  // 40% left pane
+			int right_sx = SCALE1(PADDING) + left_w;
+			int right_w = sw - left_w;
+			Search_drawKeyboard(screen, sx, qy, left_w);
+			// live results in right pane
+			int rtotal = search_results ? search_results->count : 0;
+			int srows = rows-1; // query line takes one row
+			if (srows<1) srows = 1;
+			if (fancy && rtotal>0 && search_selected>=0 && search_selected<rtotal) {
+				SearchResult* sel_hit = search_results->items[search_selected];
+				char sel_boxart[512];
+				SearchResult_boxartPath(sel_hit, sel_boxart);
+				if (sel_boxart[0]) {
+					SDL_Surface* boxart = BoxartCache_get(sel_boxart);
+					if (!boxart) {
+						boxart = loadBoxart(sel_boxart);
+						if (boxart) BoxartCache_put(sel_boxart, boxart);
+					}
+					if (boxart) {
+						// clip boxart to right pane only so it doesn't cover the keyboard
+						SDL_BlitSurface(boxart, NULL, screen, &(SDL_Rect){right_sx,0,right_w,screen->h});
+					}
+				}
+			}
+			int ry = qy + SCALE1(PILL_SIZE);
+			int rend = search_start+srows;
+			if (rend>rtotal) rend = rtotal;
+			for (int i=search_start,j=0; i<rend; i++,j++) {
+				SearchResult* hit = search_results->items[i];
+				int is_sel = (i==search_selected);
+				TTF_Font* _font = font.large;
+				SDL_Color tc = COLOR_WHITE;
+				int available_width = right_w;
+				if (fancy) {
+					_font = font.medium;
+					tc = COLOR_GRAY;
+					available_width = right_w - SCALE1(PADDING);
+				}
+				if (is_sel && fancy) {
+					_font = font.large;
+					tc = COLOR_WHITE;
+					available_width = right_w;
+				}
+				int row_h = SCALE1(PILL_SIZE-(5*fancy));
+				int row_y = ry+j*row_h;
+				char rawline[320];
+				sprintf(rawline, "%s (%s)", hit->name, hit->emu);
+				char lined[320];
+				int text_width = GFX_truncateText(_font, rawline, lined, available_width, SCALE1(BUTTON_PADDING*2));
+				int max_width = MIN(available_width, text_width);
+				if (is_sel && !fancy) {
+					GFX_blitPill(ASSET_WHITE_PILL, screen, &(SDL_Rect){right_sx,row_y,max_width,SCALE1(PILL_SIZE)});
+					tc = COLOR_BLACK;
+				}
+				SDL_Surface* text = TTF_RenderUTF8_Blended(_font, lined, tc);
+				if (is_sel && fancy && hit->type==ENTRY_ROM) {
+					SDL_Surface* textout = TTF_RenderUTF8_Blended(font.largeoutline, lined, COLOR_BLACK);
+					SDL_BlitSurface(textout, &(SDL_Rect){0,0,max_width-SCALE1(BUTTON_PADDING*2),textout->h}, screen, &(SDL_Rect){right_sx+SCALE1(BUTTON_PADDING),row_y+SCALE1(4)});
+					SDL_FreeSurface(textout);
+				}
+				SDL_BlitSurface(text, &(SDL_Rect){0,0,max_width-SCALE1(BUTTON_PADDING*2),text->h}, screen, &(SDL_Rect){right_sx+SCALE1(BUTTON_PADDING),row_y+SCALE1(4)});
+				SDL_FreeSurface(text);
+			}
+			if (rtotal==0) {
+				GFX_blitMessage(font.large, "No results", screen, &(SDL_Rect){right_sx,qy,right_w,screen->h-qy});
+			}
 		}
 	}
 
 	// buttons
 	if (show_setting && !GetHDMI()) GFX_blitHardwareHints(screen, show_setting, fancy);
-	else if (show_search_menu==2) GFX_blitButtonGroup((char*[]){ "A","OPEN", "START","FAV", "B","BACK", NULL }, 1, screen, 1, fancy);
-	else if (show_search_menu==1) GFX_blitButtonGroup((char*[]){ "A","TYPE", "L1","DEL", "R1","SPACE", "START","GO", "B","BACK", NULL }, 1, screen, 1, fancy);
+	else if (show_search_menu==2) GFX_blitButtonGroup((char*[]){ "A","OPEN", "START","SPLIT", "Y","FAV", "B","BACK", NULL }, 1, screen, 1, fancy);
+	else if (show_search_menu==1) GFX_blitButtonGroup((char*[]){ "A","TYPE", "L1","DEL", "R1","SPACE", "START","RESULTS", "B","BACK", NULL }, 1, screen, 1, fancy);
 	else GFX_blitButtonGroup((char*[]){ "A","OK", "B","BACK", NULL }, 1, screen, 1, fancy);
 }
 
@@ -2573,6 +2697,31 @@ static int getBoxartPath(Entry* entry, char* out) {
 			sprintf(out, "%s/Imgs/%s.png", entry->path, emu_name);
 			if (exists(out)) return 1;
 		}
+		// For deduplicated console folders (e.g. GBA vs MGBA share
+		// display name "Game Boy Advance"), also scan sibling directories
+		// whose names match "<base_name> (" to find boxart in the other tag.
+		if (isConsoleDir(entry->path)) {
+			char prefix[256];
+			sprintf(prefix, "%s (", entry->name);
+			DIR* rd = opendir(ROMS_PATH);
+			if (rd) {
+				struct dirent* rdp;
+				char rpath[256];
+				sprintf(rpath, "%s/", ROMS_PATH);
+				char* rp = rpath + strlen(rpath);
+				while ((rdp = readdir(rd)) != NULL) {
+					if (rdp->d_type != DT_DIR) continue;
+					if (!prefixMatch(prefix, rdp->d_name)) continue;
+					sprintf(rp, rdp->d_name);
+					if (exactMatch(rpath, entry->path)) continue; // skip self
+					sprintf(out, "%s/Imgs/%s.png", rpath, rdp->d_name);
+					if (exists(out)) { closedir(rd); return 1; }
+					sprintf(out, "%s/Imgs/%s.png", rpath, entry->name);
+					if (exists(out)) { closedir(rd); return 1; }
+				}
+				closedir(rd);
+			}
+		}
 	}
 
   // generic fallbacks (covers faux directories and subfolders)
@@ -2747,7 +2896,7 @@ int main (int argc, char *argv[]) {
 	PAD_reset();
 	int dirty = 1;
 	int show_version = 0;
-	int show_setting = 0; // 1=brightness,2=volume
+	int show_setting = 0; // 1=brightness,2=volume,3=led brightness
 	int was_online = PLAT_isOnline();
 	while (!quit) {
 		GFX_startFrame();
@@ -2987,11 +3136,7 @@ int main (int argc, char *argv[]) {
 						if (total>0) readyResume(top->entries->items[top->selected]);
 					}
 				}
-				else if (PAD_justPressed(BTN_Y)) { // back to keyboard
-					show_search_menu = 1;
-					dirty = 1;
-				}
-				else if (PAD_justPressed(BTN_START)) { // toggle favorite from results
+				else if (PAD_justPressed(BTN_Y)) { // toggle favorite from results
 					if (rtotal>0) {
 						SearchResult* hit = search_results->items[search_selected];
 						if (hit->type==ENTRY_ROM) {
@@ -3000,6 +3145,10 @@ int main (int argc, char *argv[]) {
 						}
 						dirty = 1;
 					}
+				}
+				else if (PAD_justPressed(BTN_START)) { // toggle back to split keyboard view
+					show_search_menu = 1;
+					dirty = 1;
 				}
 			}
 		}
@@ -3256,6 +3405,8 @@ int main (int argc, char *argv[]) {
 				if ((myentry->type == ENTRY_ROM ) || ism3u) {
 					toggleFavorite(myentry->path);
 					refreshRootEntries(); // show/hide the Favorites folder immediately
+					total = top->entries->count;
+					selected = top->selected;
 					dirty = 1;
 				}
 
@@ -3573,22 +3724,51 @@ int main (int argc, char *argv[]) {
 					GFX_blitMessage(font.large, "Empty folder", screen, &(SDL_Rect){0,0,screen->w,screen->h}); //, NULL);
 				}
 
-				// buttons
-				if (show_setting && !GetHDMI()) GFX_blitHardwareHints(screen, show_setting, fancy_mode);
-				else if (can_resume) GFX_blitButtonGroup((char*[]){ "X","RSM", "Y","OPT", selected_modifier?"START":"Y",selected_modifier?"HIDE":"FAV",  NULL }, 0, screen, 0, fancy_mode);
-				else {
-					if (stack->count>1){
-						GFX_blitButtonGroup((char*[]){
-						BTN_SLEEP==BTN_POWER?"PWR":"MENU",
-						BTN_SLEEP==BTN_POWER?"INFO":pwractionstr, "Y","OPT", selected_modifier?"START":"Y", (selected_modifier?"HIDE":"FAV"),
-						NULL }, 0, screen, 0, fancy_mode);
-					} else {
-						GFX_blitButtonGroup((char*[]){
-						BTN_SLEEP==BTN_POWER?"PWR":"MENU",
-						BTN_SLEEP==BTN_POWER?"INFO":pwractionstr, "Y","OPT",
-						NULL }, 0, screen, 0, fancy_mode);
-					}
+			// buttons
+			// Y opens Options only at root; in sub-menus START toggles
+			// Favorites and Y toggles Hidden on ROMs/m3u folders.
+			// Show the nav hint (Y/OPT or START/FAV) only when relevant:
+			// Y/OPT at root, START/FAV in sub-menus on ROM/m3u entries.
+			char* nav_btn = NULL;
+			char* nav_hint = NULL;
+			if (stack->count==1) {
+				nav_btn  = "Y";
+				nav_hint = "OPT";
+			} else if (total>0 && top) {
+				Entry* sel = top->entries->items[top->selected];
+				int ism3u = 0;
+				if (sel->type==ENTRY_DIR) {
+					char tmpname[256], tmpname2[256];
+					sprintf(tmpname, "%s/%s.m3u", sel->path, sel->name);
+					ism3u = hasM3u(tmpname, tmpname2);
 				}
+				if ((sel->type==ENTRY_ROM) || ism3u) {
+					nav_btn  = "START";
+					nav_hint = "FAV";
+				}
+			}
+			if (show_setting && !GetHDMI()) GFX_blitHardwareHints(screen, show_setting, fancy_mode);
+			else if (can_resume) {
+				if (nav_btn) GFX_blitButtonGroup((char*[]){ "X","RSM", nav_btn, nav_hint, selected_modifier?"START":"Y",selected_modifier?"HIDE":"FAV",  NULL }, 0, screen, 0, fancy_mode);
+				else GFX_blitButtonGroup((char*[]){ "X","RSM", NULL }, 0, screen, 0, fancy_mode);
+			}
+			else {
+				if (stack->count>1){
+					if (nav_btn) GFX_blitButtonGroup((char*[]){
+					BTN_SLEEP==BTN_POWER?"PWR":"MENU",
+					BTN_SLEEP==BTN_POWER?"INFO":pwractionstr, nav_btn, nav_hint, selected_modifier?"START":"Y", (selected_modifier?"HIDE":"FAV"),
+					NULL }, 0, screen, 0, fancy_mode);
+					else GFX_blitButtonGroup((char*[]){
+					BTN_SLEEP==BTN_POWER?"PWR":"MENU",
+					BTN_SLEEP==BTN_POWER?"INFO":pwractionstr,
+					NULL }, 0, screen, 0, fancy_mode);
+				} else {
+					GFX_blitButtonGroup((char*[]){
+					BTN_SLEEP==BTN_POWER?"PWR":"MENU",
+					BTN_SLEEP==BTN_POWER?"INFO":pwractionstr, "Y","OPT",
+					NULL }, 0, screen, 0, fancy_mode);
+				}
+			}
 				if (total==0) {
 					if (stack->count>1) {
 						GFX_blitButtonGroup((char*[]){ "B","BACK",  NULL }, 0, screen, 1, fancy_mode);

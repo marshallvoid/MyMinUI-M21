@@ -87,6 +87,8 @@ keymon.elf & #> $LOGS_PATH/keymon.txt 2>&1 &
 # init datetime
 if [ -f "$DATETIME_PATH" ]; then
 	DATETIME=`cat "$DATETIME_PATH"`
+	# truncate seconds to :00 on each boot (no RTC, sub-minute precision is meaningless)
+	DATETIME="${DATETIME%:*}:00"
 	date +'%F %T' -s "$DATETIME"
 	DATETIME=`date +'%s'`
 	date -u -s "@$DATETIME"
@@ -94,6 +96,10 @@ if [ -f "$DATETIME_PATH" ]; then
 fi
 
 #######################################
+
+# On first boot, show the clock tool so the user can set the correct time
+# before launching MinUI. Reloads (MinUI exit/restart) skip this.
+first_boot=1
 
 AUTO_PATH="$USERDATA_PATH/auto.sh"
 if [ -f "$AUTO_PATH" ]; then
@@ -108,6 +114,17 @@ EXEC_PATH="/tmp/minui_exec"
 NEXT_PATH="/tmp/next"
 touch "$EXEC_PATH" && sync
 while [ -f "$EXEC_PATH" ]; do
+	if [ $first_boot -eq 1 ]; then
+		# First boot only: show clock tool so user can set the correct time
+		if [ -f "$SYSTEM_PATH/bin/clock.elf" ]; then
+			clock.elf > $LOGS_PATH/clock.txt 2>&1
+			# update datetime.txt after manual clock set (seconds truncated to :00)
+			echo `date +'%F %H:%M:00'` > "$DATETIME_PATH"
+			sync
+		fi
+		first_boot=0
+	fi
+
 	echo $CPU_SPEED_GAME > "${GOVERNOR_CPUSPEED_PATH}"
 	minui.elf > $LOGS_PATH/minui.txt 2>&1
 

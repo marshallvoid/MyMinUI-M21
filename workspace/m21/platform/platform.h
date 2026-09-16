@@ -120,7 +120,7 @@ uint32_t PLAT_screenMemSize(void);
 #define BTN_SLEEP 			BTN_NONE
 #define BTN_WAKE 			BTN_MENU
 #define BTN_MOD_VOLUME 		BTN_NONE
-#define BTN_MOD_BRIGHTNESS 	BTN_MENU
+#define BTN_MOD_BRIGHTNESS 	BTN_SELECT
 #define BTN_MOD_PLUS 		BTN_PLUS
 #define BTN_MOD_MINUS 		BTN_MINUS
 

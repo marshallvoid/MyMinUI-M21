@@ -12,12 +12,30 @@ PIDFILE="/tmp/led.pid"
 
 LEDS=16
 MAXB=255
-# fixed LED brightness (0..255); the future brightness +/- feature will
-# persist this value to led.conf instead of this constant
-LED_BRIGHT=180
+DEFAULT_LED_BRIGHT=60
 
 has_leds() {
 	[ -e /sys/class/leds/sunxi_led0r/brightness ]
+}
+
+# Read brightness from led.conf (line 2), default to DEFAULT_LED_BRIGHT
+read_brightness() {
+	if [ -f "$LED_CONF" ]; then
+		BRIGHT=$(sed -n '2p' "$LED_CONF" 2>/dev/null | tr -d ' \t\r\n')
+		if [ -n "$BRIGHT" ] && [ "$BRIGHT" -ge 0 ] 2>/dev/null && [ "$BRIGHT" -le 255 ] 2>/dev/null; then
+			echo "$BRIGHT"
+			return
+		fi
+	fi
+	echo "$DEFAULT_LED_BRIGHT"
+}
+
+# Write mode and brightness to led.conf (atomic via temp file)
+write_conf() {
+	mkdir -p "$(dirname "$LED_CONF")"
+	tmp="$LED_CONF.tmp.$$"
+	printf "%s\n%s\n" "$1" "$2" > "$tmp" 2>/dev/null
+	mv "$tmp" "$LED_CONF" 2>/dev/null
 }
 
 write_all() {
@@ -41,6 +59,9 @@ led_stop() {
 		PID=$(cat "$PIDFILE" 2>/dev/null)
 		if [ -n "$PID" ]; then
 			kill "$PID" 2>/dev/null
+			# Brief wait to ensure the daemon exits and stops
+			# writing gradient frames that would override led_off
+			sleep 0.1 2>/dev/null || sleep 1
 		fi
 		rm -f "$PIDFILE"
 	fi
@@ -52,16 +73,26 @@ led_off() {
 }
 
 gradient_daemon() {
-	# Stock-like rainbow wave at a FIXED brightness: hue rotates over
-	# time and each LED is phase-shifted around the ring
-	# (integer HSV->RGB, no floats)
+	# Stock-like rainbow wave: hue rotates over time and each LED is
+	# phase-shifted around the ring (integer HSV->RGB, no floats)
 	trap "exit 0" TERM INT
 	t=0
+	brightness=$(read_brightness)
+	brightness_check=0
 	while true; do
+		# Refresh brightness from config periodically (every ~60 frames)
+		brightness_check=$((brightness_check + 1))
+		if [ $brightness_check -ge 60 ]; then
+			brightness_check=0
+			new_brightness=$(read_brightness)
+			if [ "$new_brightness" != "$brightness" ]; then
+				brightness=$new_brightness
+			fi
+		fi
 		i=0
 		while [ $i -lt $LEDS ]; do
 			hue=$(( (t + i * 360 / LEDS) % 360 ))
-			val=$LED_BRIGHT
+			val=$brightness
 			# HSV(hue,100%,val) -> RGB, hue sector 0..5
 			sector=$(( hue / 60 ))
 			frac=$(( hue % 60 ))
@@ -97,7 +128,7 @@ led_gradient() {
 
 read_mode() {
 	if [ -f "$LED_CONF" ]; then
-		MODE=$(cat "$LED_CONF" 2>/dev/null | tr -d ' \t\r\n')
+		MODE=$(head -1 "$LED_CONF" 2>/dev/null | tr -d ' \t\r\n')
 	else
 		MODE="gradient"
 	fi
@@ -109,11 +140,11 @@ read_mode() {
 }
 
 cmd="$1"
+BRIGHTNESS=$(read_brightness)
 case "$cmd" in
 	off)
 		has_leds || exit 0
-		mkdir -p "$(dirname "$LED_CONF")"
-		echo "off" > "$LED_CONF"
+		write_conf "off" "$BRIGHTNESS"
 		led_off
 		;;
 	off-now)
@@ -125,19 +156,16 @@ case "$cmd" in
 		;;
 	gradient)
 		has_leds || exit 0
-		mkdir -p "$(dirname "$LED_CONF")"
-		echo "gradient" > "$LED_CONF"
+		write_conf "gradient" "$BRIGHTNESS"
 		led_gradient
 		;;
 	toggle)
 		has_leds || exit 0
 		if [ "$(read_mode)" = "gradient" ]; then
-			mkdir -p "$(dirname "$LED_CONF")"
-			echo "off" > "$LED_CONF"
+			write_conf "off" "$BRIGHTNESS"
 			led_off
 		else
-			mkdir -p "$(dirname "$LED_CONF")"
-			echo "gradient" > "$LED_CONF"
+			write_conf "gradient" "$BRIGHTNESS"
 			led_gradient
 		fi
 		;;
