@@ -179,13 +179,15 @@ void PLAT_pollInput(void) {
 							btn = BTN_MENU;  id = BTN_ID_MENU;
 							selectstartlaststatus[i]=1;
 							pad.is_pressed		&= ~BTN_SELECT; // unset
+							pad.just_pressed	&= ~BTN_SELECT; // unset
 							pad.just_repeated	&= ~BTN_SELECT; // unset
 							pad.just_released_short &= ~BTN_SELECT; // unset
 							pad.just_released   &= ~BTN_SELECT; // unset
 							pad.is_pressed		&= ~BTN_START; // unset
+							pad.just_pressed	&= ~BTN_START; // unset
 							pad.just_repeated	&= ~BTN_START; // unset
 							pad.just_released_short &= ~BTN_START; // unset
-							pad.just_released &= ~BTN_SELECT; // unset
+							pad.just_released &= ~BTN_START; // unset
 							if (pressed){
 								PWR_Pressed = 1;
 								PWR_Tick = SDL_GetTicks();
@@ -1413,7 +1415,7 @@ int PLAT_pickSampleRate(int requested, int max) {
 
 char* PLAT_getModel(void) {
 	if (ism22) {
-		return "SJGAM M22pro";
+		return "SJGAM M22 Pro";
 	}
 	return "SJGAM M21";
 }
