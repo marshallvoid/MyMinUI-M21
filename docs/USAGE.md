@@ -5,7 +5,6 @@
 ### SJGAM M21 / M22 PRO
 
 - **Brightness**: SELECT + VOLUME UP / DOWN
-- **LED Brightness**: START + VOLUME UP / DOWN
 - **Volume**: VOLUME UP / DOWN (no modifier)
 
 ### Sleep, Wake, and Power Off
@@ -35,29 +34,9 @@ These delays are adjustable by editing text files:
 
 Both values are in seconds and limited to 7200 (2 hours).
 
-## Working Modes
-
-MyMinUI has 3 working modes: **Standard**, **Simple**, and **Fancy**.
-
-To switch modes: press MENU, then use UP/DOWN to change.
-
-### Standard Mode (Default)
-
-Same look and feel of MinUI, keeping additional MyMinUI features.
-
-### Fancy Mode
-
-A reworked layout that shows boxart on the right side and allows selecting save states using previews. See the [Boxart Guide](BOXART.md) for dimensions and locations.
-
-### Simple Mode
-
-Hides the Tools folder and replaces the Options menu in the in-game menu with Reset. Perfect for handing off to children.
-
-To enable Simple Mode, create an empty file named `enable-simple-mode` (no extension) in `/.userdata/shared/`.
-
 ## Favorites
 
-**Press SELECT to toggle a ROM as a favorite.**
+**Press START to toggle a ROM as a favorite.**
 
 ## Quicksave & Auto-Resume
 
